@@ -18,14 +18,19 @@ jobs:
         include:
           - platform: macos-14
             args: --target universal-apple-darwin
+            rustTargets: aarch64-apple-darwin,x86_64-apple-darwin
           - platform: ubuntu-22.04
             args: --target x86_64-unknown-linux-gnu
+            rustTargets: x86_64-unknown-linux-gnu
           - platform: ubuntu-24.04-arm
             args: --target aarch64-unknown-linux-gnu
+            rustTargets: aarch64-unknown-linux-gnu
           - platform: windows-2025
             args: --target x86_64-pc-windows-msvc
+            rustTargets: x86_64-pc-windows-msvc
           - platform: windows-11-arm
             args: --target aarch64-pc-windows-msvc
+            rustTargets: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +41,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.1
+          targets: ${{ matrix.rustTargets }}
       - run: pnpm install --frozen-lockfile
       - name: Install Linux system packages
         if: runner.os == 'Linux'
@@ -65,7 +73,9 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.1
       - run: cargo install cargo-cyclonedx --locked
       - run: cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json
       - uses: pnpm/action-setup@v4

@@ -28,7 +28,17 @@ jobs:
       - name: Audit production dependency licenses
         run: pnpm licenses list --prod --json > frontend-licenses.json
       - name: Create frontend SBOM
-        run: pnpm dlx @cyclonedx/cyclonedx-npm --output-file frontend.cdx.json
+        # cyclonedx-npm shells out to npm, whose tree validation does not
+        # understand pnpm's node_modules layout. It can still inventory it.
+        run: |
+          if ! pnpm dlx @cyclonedx/cyclonedx-npm \
+            --ignore-npm-errors \
+            --output-reproducible \
+            --output-file frontend.cdx.json \
+            2>frontend-sbom.log; then
+            cat frontend-sbom.log
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: frontend-supply-chain
@@ -48,8 +58,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.97.1
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
