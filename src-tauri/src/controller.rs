@@ -217,7 +217,8 @@ impl AppController {
         let bytes = std::fs::read(path)
             .with_context(|| format!("failed reading bundled skin: {}", path.display()))?;
         let skins_dir = self.skins_dir();
-        let descriptor = skin::install_bytes(name, &bytes, &skins_dir)?;
+        let mut descriptor = skin::install_bytes(name, &bytes, &skins_dir)?;
+        skin::mark_bundled(&skins_dir, &mut descriptor)?;
         self.mutate_persistent(|state| {
             if state
                 .settings
@@ -277,6 +278,17 @@ impl AppController {
 
     pub fn list_skins(&self) -> Result<Vec<skin::SkinDescriptor>> {
         skin::list(&self.skins_dir())
+    }
+
+    pub fn delete_skin(&self, id: &str, app: &AppHandle) -> Result<AppSnapshot> {
+        skin::remove(&self.skins_dir(), id)?;
+        let snapshot = self.mutate_persistent(|state| {
+            if state.settings.selected_skin.as_deref() == Some(id) {
+                state.settings.selected_skin = None;
+            }
+        })?;
+        emit_snapshot(app, &snapshot);
+        Ok(snapshot)
     }
 
     pub fn select_installed_skin(
@@ -869,19 +881,13 @@ impl AppController {
             return Ok(window);
         }
         let snapshot = self.snapshot();
-        let (title, width, height, min_height, resizable, transparent) = match panel {
-            "equalizer" => ("Tonelag Equalizer", 275.0, 116.0, 116.0, false, true),
-            "playlist" => (
-                "Tonelag Playlist",
-                275.0,
-                snapshot.layout.playlist_height.max(116.0),
-                116.0,
-                true,
-                true,
-            ),
-            "skins" => ("Tonelag Skin Browser", 620.0, 520.0, 380.0, true, false),
+        let (title, resizable, transparent) = match panel {
+            "equalizer" => ("Tonelag Equalizer", false, true),
+            "playlist" => ("Tonelag Playlist", true, true),
+            "skins" => ("Tonelag Skin Browser", true, false),
             _ => return Err(anyhow!("unknown panel")),
         };
+        let (width, height, min_height) = panel_window_dimensions(panel, &snapshot);
         let mut builder = tauri::WebviewWindowBuilder::new(
             app,
             panel,
@@ -889,7 +895,7 @@ impl AppController {
         )
         .title(title)
         .inner_size(width, height)
-        .min_inner_size(if panel == "skins" { 480.0 } else { 275.0 }, min_height)
+        .min_inner_size(if panel == "skins" { 480.0 } else { width }, min_height)
         .resizable(resizable)
         .decorations(false)
         .transparent(transparent)
@@ -921,6 +927,24 @@ impl AppController {
         {
             let _ = sender.send(snapshot.into());
         }
+    }
+}
+
+fn panel_window_dimensions(panel: &str, snapshot: &AppSnapshot) -> (f64, f64, f64) {
+    let scale = if snapshot.settings.double_size {
+        2.0
+    } else {
+        1.0
+    };
+    match panel {
+        "equalizer" => (275.0 * scale, 116.0 * scale, 116.0 * scale),
+        "playlist" => (
+            275.0 * scale,
+            snapshot.layout.playlist_height.max(116.0) * scale,
+            116.0 * scale,
+        ),
+        "skins" => (620.0, 520.0, 380.0),
+        _ => unreachable!("panel validated before computing dimensions"),
     }
 }
 
@@ -1176,6 +1200,26 @@ mod window_tests {
         assert_eq!(
             native_group_edges(&layout, false, false),
             (true, Some(PlaylistParent::Equalizer))
+        );
+    }
+
+    #[test]
+    fn lazy_panel_dimensions_restore_double_size() {
+        let mut snapshot = AppSnapshot::default();
+        snapshot.settings.double_size = true;
+        snapshot.layout.playlist_height = 232.0;
+
+        assert_eq!(
+            panel_window_dimensions("equalizer", &snapshot),
+            (550.0, 232.0, 232.0)
+        );
+        assert_eq!(
+            panel_window_dimensions("playlist", &snapshot),
+            (550.0, 464.0, 232.0)
+        );
+        assert_eq!(
+            panel_window_dimensions("skins", &snapshot),
+            (620.0, 520.0, 380.0)
         );
     }
 }

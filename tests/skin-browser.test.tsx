@@ -5,6 +5,7 @@ import { SkinBrowserPanel } from "../src/components/SkinBrowserPanel";
 
 const backend = vi.hoisted(() => ({
   browseSkinCatalog: vi.fn(),
+  deleteInstalledSkin: vi.fn(),
   installCatalogSkin: vi.fn(),
   listInstalledSkins: vi.fn(),
   onSkinBrowserOpened: vi.fn(),
@@ -41,7 +42,7 @@ describe("skin browser", () => {
       totalCount: 1,
       hasMore: false,
     });
-    backend.installCatalogSkin.mockResolvedValue({ id: "a".repeat(64), name: "Receiver", files: ["main.bmp"] });
+    backend.installCatalogSkin.mockResolvedValue({ id: "a".repeat(64), name: "Receiver", files: ["main.bmp"], bundled: false });
     backend.listInstalledSkins.mockResolvedValue([]);
     backend.selectInstalledSkin.mockResolvedValue({
       revision: 1,
@@ -77,23 +78,45 @@ describe("skin browser", () => {
 
   it("shows and selects a locally installed skin", async () => {
     backend.listInstalledSkins.mockResolvedValue([
-      { id: "b".repeat(64), name: "Local receiver", files: ["main.bmp"] },
+      { id: "b".repeat(64), name: "Local receiver", files: ["main.bmp"], bundled: false },
     ]);
     render(<SkinBrowserPanel />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Local receiver" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Installed skins" }), {
+      target: { value: "b".repeat(64) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Use selected skin" }));
 
     expect(backend.selectInstalledSkin).toHaveBeenCalledWith("b".repeat(64));
+  });
+
+  it("deletes a removable local skin without laying skins out horizontally", async () => {
+    backend.listInstalledSkins.mockResolvedValue([
+      { id: "d".repeat(64), name: "Delete me", files: ["main.bmp"], bundled: false },
+    ]);
+    backend.deleteInstalledSkin.mockResolvedValue({
+      revision: 2, queue: [], playback: { revision: 2 }, settings: { selectedSkin: null }, layout: {},
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<SkinBrowserPanel />);
+
+    fireEvent.change(await screen.findByRole("combobox", { name: "Installed skins" }), {
+      target: { value: "d".repeat(64) },
+    });
+    backend.listInstalledSkins.mockResolvedValue([]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete selected skin" }));
+
+    await waitFor(() => expect(backend.deleteInstalledSkin).toHaveBeenCalledWith("d".repeat(64)));
   });
 
   it("loads installed skins even when the initial opened event was emitted too early", async () => {
     backend.onSkinBrowserOpened.mockResolvedValue(vi.fn());
     backend.listInstalledSkins.mockResolvedValue([
-      { id: "c".repeat(64), name: "Already installed", files: ["main.bmp"] },
+      { id: "c".repeat(64), name: "Already installed", files: ["main.bmp"], bundled: false },
     ]);
 
     render(<SkinBrowserPanel />);
 
-    expect(await screen.findByRole("button", { name: "Already installed" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Already installed" })).toBeInTheDocument();
   });
 });

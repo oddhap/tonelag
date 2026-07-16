@@ -139,6 +139,19 @@ fn skin_list(controller: State<'_, Arc<AppController>>) -> CommandResult<Vec<Ski
 }
 
 #[tauri::command]
+fn skin_delete(
+    id: String,
+    controller: State<'_, Arc<AppController>>,
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+) -> CommandResult<AppSnapshot> {
+    controller
+        .delete_skin(&id, &app)
+        .map(|snapshot| snapshot_for_window(snapshot, window.label()))
+        .map_err(format_error)
+}
+
+#[tauri::command]
 fn skin_select(
     id: Option<String>,
     controller: State<'_, Arc<AppController>>,
@@ -357,6 +370,7 @@ pub fn run() {
             skin_import,
             skin_bytes,
             skin_list,
+            skin_delete,
             skin_select,
             skin_catalog_browse,
             skin_catalog_install,

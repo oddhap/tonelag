@@ -32,6 +32,7 @@ export const importSkin = (path: string) => invoke<SkinDescriptor>("skin_import"
 export const getSkinBytes = (id: string) => invoke<number[]>("skin_bytes", { id });
 export const listInstalledSkins = () => invoke<SkinDescriptor[]>("skin_list");
 export const selectInstalledSkin = (id: string | null) => invoke<AppSnapshot>("skin_select", { id });
+export const deleteInstalledSkin = (id: string) => invoke<AppSnapshot>("skin_delete", { id });
 export const browseSkinCatalog = (query: string | null, offset: number, limit: number) =>
   invoke<SkinCatalogPage>("skin_catalog_browse", { query, offset, limit });
 export const installCatalogSkin = (md5: string, name: string) =>

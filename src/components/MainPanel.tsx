@@ -16,6 +16,7 @@ export function MainPanel({ snapshot }: MainPanelProps) {
   const { t } = useTranslation();
   const [showRemaining, setShowRemaining] = useState(false);
   const [visualization, setVisualization] = useState<"spectrum" | "oscilloscope">("spectrum");
+  const [menuOpen, setMenuOpen] = useState(false);
   const skin = useClassicSkin();
   const { playback, settings, queue } = snapshot;
   const current = queue.find((item) => item.id === playback.currentItemId) ?? null;
@@ -39,23 +40,43 @@ export function MainPanel({ snapshot }: MainPanelProps) {
     void setPanelVisible(panel, true).catch(reportError);
   };
 
+  const runMenuAction = (action: () => void) => {
+    setMenuOpen(false);
+    action();
+  };
+
   return (
     <PanelChrome
       className="main-panel"
       title={t("appName")}
       controls={
-        <>
-          <button className="micro-button" onClick={() => showPanel("skins")} title={t("browseSkins")}>S</button>
-          <button className="micro-button" onClick={() => void addChosenFiles()} title={t("openFiles")}>O</button>
-          <button className="micro-button" onClick={promptForUrl} title={t("openUrl")}>U</button>
-          <button className="micro-button" onClick={() => void player({ type: "setLanguage", language: settings.language === "en" ? "nb" : "en" })} title={t("language")}>{settings.language === "en" ? "N" : "E"}</button>
-          <button className="micro-button" aria-pressed={settings.alwaysOnTop} onClick={() => void player({ type: "toggleAlwaysOnTop" })} title={t("alwaysOnTop")}>A</button>
-          <button className="micro-button" aria-pressed={settings.doubleSize} onClick={() => void player({ type: "toggleDoubleSize" })} title="2×">2</button>
-          <button className="micro-button" aria-pressed={settings.mainWinshade} onClick={() => void player({ type: "toggleWinshade" })} title="Winshade">W</button>
-          <button className="micro-button close-button" aria-label={t("quit")} onClick={() => void quitApp().catch(reportError)}>×</button>
-        </>
+        <span className="main-title-controls">
+          <button
+            className="micro-button title-options-button"
+            aria-label={t("tonelagMenu")}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          />
+          <button
+            className="micro-button title-winshade-button"
+            aria-label={t("winshade")}
+            aria-pressed={settings.mainWinshade}
+            onClick={() => void player({ type: "toggleWinshade" })}
+          />
+          <button className="micro-button title-close-button" aria-label={t("quit")} onClick={() => void quitApp().catch(reportError)} />
+        </span>
       }
     >
+      {menuOpen && (
+        <div className="tonelag-menu" role="menu" aria-label={t("tonelagMenu")}>
+          <button role="menuitem" onClick={() => runMenuAction(() => void addChosenFiles())}>{t("openFiles")}</button>
+          <button role="menuitem" onClick={() => runMenuAction(promptForUrl)}>{t("openUrl")}</button>
+          <button role="menuitem" onClick={() => runMenuAction(() => showPanel("skins"))}>{t("browseSkins")}</button>
+          <button role="menuitem" onClick={() => runMenuAction(() => void player({ type: "toggleAlwaysOnTop" }))}>{t("alwaysOnTop")}{settings.alwaysOnTop ? " ✓" : ""}</button>
+          <button role="menuitem" onClick={() => runMenuAction(() => void player({ type: "toggleDoubleSize" }))}>{t("doubleSize")}{settings.doubleSize ? " ✓" : ""}</button>
+          <button role="menuitem" onClick={() => runMenuAction(() => void player({ type: "setLanguage", language: settings.language === "en" ? "nb" : "en" }))}>{t("language")}</button>
+        </div>
+      )}
       <div className="main-readout">
         <button className="time-display" aria-label={showRemaining ? t("remaining") : t("elapsed")} onClick={() => setShowRemaining((value) => !value)}>{time}</button>
         <button className="visualization-toggle" aria-label={t("visualization")} onClick={() => setVisualization((value) => value === "spectrum" ? "oscilloscope" : "spectrum")}>
