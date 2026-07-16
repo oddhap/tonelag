@@ -4,8 +4,10 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type {
   AppSnapshot,
+  PlaybackSnapshot,
   PlayerCommand,
   ResolvedStream,
+  QueueItem,
   SkinCatalogPage,
   SkinDescriptor,
   Uuid,
@@ -28,6 +30,8 @@ export const importEqf = (path: string) => invoke<AppSnapshot>("eqf_import", { p
 export const exportEqf = (path: string) => invoke<void>("eqf_export", { path });
 export const importSkin = (path: string) => invoke<SkinDescriptor>("skin_import", { path });
 export const getSkinBytes = (id: string) => invoke<number[]>("skin_bytes", { id });
+export const listInstalledSkins = () => invoke<SkinDescriptor[]>("skin_list");
+export const selectInstalledSkin = (id: string | null) => invoke<AppSnapshot>("skin_select", { id });
 export const browseSkinCatalog = (query: string | null, offset: number, limit: number) =>
   invoke<SkinCatalogPage>("skin_catalog_browse", { query, offset, limit });
 export const installCatalogSkin = (md5: string, name: string) =>
@@ -35,6 +39,8 @@ export const installCatalogSkin = (md5: string, name: string) =>
 export const resolveStream = (url: string) => invoke<ResolvedStream>("resolve_stream", { url });
 export const setPanelVisible = (panel: "equalizer" | "playlist" | "skins", visible: boolean) =>
   invoke<void>("set_panel_visible", { panel, visible });
+export const notifyFrontendReady = () => invoke<void>("frontend_ready");
+export const quitApp = () => invoke<void>("quit_app");
 
 export async function chooseAudioFiles(): Promise<string[]> {
   const result = await open({
@@ -82,6 +88,10 @@ export const chooseEqfDestination = () =>
 
 export const onSnapshot = (callback: (snapshot: AppSnapshot) => void) =>
   listen<AppSnapshot>("app://snapshot", ({ payload }) => callback(payload));
+export const onPlaybackSnapshot = (callback: (snapshot: PlaybackSnapshot) => void) =>
+  listen<PlaybackSnapshot>("player://snapshot", ({ payload }) => callback(payload));
+export const onQueueSnapshot = (callback: (queue: QueueItem[]) => void) =>
+  listen<QueueItem[]>("queue://snapshot", ({ payload }) => callback(payload));
 export const onSkinBrowserOpened = (callback: () => void) =>
   listen<void>("skin-browser://opened", callback);
 

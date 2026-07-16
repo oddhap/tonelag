@@ -20,6 +20,7 @@ export interface ClassicSkin {
   hints: string | null;
   genericColors: Record<string, string>;
   cursors: Record<string, string>;
+  glyphColors: { text: string | null; numbers: string | null };
   dispose(): void;
 }
 
@@ -105,7 +106,76 @@ async function optionalText(zip: JSZip, files: Map<string, string>, name: string
 async function objectUrl(entry: JSZipObject, type: string) {
   const bytes = await entry.async("uint8array");
   const buffer = Uint8Array.from(bytes).buffer;
-  return URL.createObjectURL(new Blob([buffer], { type }));
+  return { url: URL.createObjectURL(new Blob([buffer], { type })), bytes };
+}
+
+function bitmapPixels(bytes: Uint8Array): Array<[number, number, number]> {
+  if (bytes.length < 54 || bytes[0] !== 0x42 || bytes[1] !== 0x4d) return [];
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const pixelOffset = view.getUint32(10, true);
+  const dibSize = view.getUint32(14, true);
+  const width = Math.abs(view.getInt32(18, true));
+  const height = Math.abs(view.getInt32(22, true));
+  const bits = view.getUint16(28, true);
+  const compression = view.getUint32(30, true);
+  if (!width || !height || compression !== 0 || ![1, 4, 8, 24, 32].includes(bits)) return [];
+  const rowStride = Math.floor((width * bits + 31) / 32) * 4;
+  if (pixelOffset + rowStride * height > bytes.length) return [];
+
+  const palette: Array<[number, number, number]> = [];
+  if (bits <= 8) {
+    const paletteStart = 14 + dibSize;
+    const declared = bytes.length >= 50 ? view.getUint32(46, true) : 0;
+    const count = declared || 1 << bits;
+    if (paletteStart + count * 4 > pixelOffset) return [];
+    for (let index = 0; index < count; index += 1) {
+      const offset = paletteStart + index * 4;
+      palette.push([bytes[offset + 2] ?? 0, bytes[offset + 1] ?? 0, bytes[offset] ?? 0]);
+    }
+  }
+
+  const pixels: Array<[number, number, number]> = [];
+  for (let y = 0; y < height; y += 1) {
+    const row = pixelOffset + y * rowStride;
+    for (let x = 0; x < width; x += 1) {
+      if (bits === 24 || bits === 32) {
+        const offset = row + x * (bits / 8);
+        pixels.push([bytes[offset + 2] ?? 0, bytes[offset + 1] ?? 0, bytes[offset] ?? 0]);
+      } else {
+        const packed = bytes[row + Math.floor(x * bits / 8)] ?? 0;
+        const shift = 8 - bits - (x * bits % 8);
+        const index = (packed >> shift) & ((1 << bits) - 1);
+        if (palette[index]) pixels.push(palette[index]);
+      }
+    }
+  }
+  return pixels;
+}
+
+function representativeBitmapColor(bytes: Uint8Array): string | null {
+  const histogram = new Map<string, { color: [number, number, number]; count: number }>();
+  for (const color of bitmapPixels(bytes)) {
+    const key = color.join(",");
+    const entry = histogram.get(key);
+    if (entry) entry.count += 1;
+    else histogram.set(key, { color, count: 1 });
+  }
+  const colors = [...histogram.values()];
+  if (!colors.length) return null;
+  const background = colors.reduce((best, entry) => {
+    if (entry.count !== best.count) return entry.count > best.count ? entry : best;
+    const luminance = entry.color[0] + entry.color[1] + entry.color[2];
+    const bestLuminance = best.color[0] + best.color[1] + best.color[2];
+    return luminance < bestLuminance ? entry : best;
+  });
+  const foreground = colors
+    .filter((entry) => entry !== background)
+    .map((entry) => ({
+      ...entry,
+      score: entry.color.reduce((sum, channel, index) => sum + (channel - background.color[index]) ** 2, 0) * Math.sqrt(entry.count),
+    }))
+    .sort((left, right) => right.score - left.score)[0] ?? background;
+  return `rgb(${foreground.color.join(", ")})`;
 }
 
 export async function parseClassicSkin(bytes: Uint8Array, name = "Imported skin"): Promise<ClassicSkin> {
@@ -126,13 +196,18 @@ export async function parseClassicSkin(bytes: Uint8Array, name = "Imported skin"
 
   const urls: string[] = [];
   const images: Record<string, string> = {};
+  const glyphColors = { text: null as string | null, numbers: null as string | null };
   for (const imageName of IMAGE_NAMES) {
     const path = files.get(imageName);
     const entry = path ? zip.file(path) : null;
     if (!entry) continue;
-    const url = await objectUrl(entry, "image/bmp");
-    urls.push(url);
-    images[imageName] = url;
+    const image = await objectUrl(entry, "image/bmp");
+    urls.push(image.url);
+    images[imageName] = image.url;
+    if (imageName === "text.bmp") glyphColors.text = representativeBitmapColor(image.bytes);
+    if (imageName === "numbers.bmp" || imageName === "nums_ex.bmp") {
+      glyphColors.numbers ??= representativeBitmapColor(image.bytes);
+    }
   }
 
   const cursors: Record<string, string> = {};
@@ -140,9 +215,9 @@ export async function parseClassicSkin(bytes: Uint8Array, name = "Imported skin"
     if (!leaf.endsWith(".cur") && !leaf.endsWith(".ani")) continue;
     const entry = zip.file(path);
     if (!entry) continue;
-    const url = await objectUrl(entry, leaf.endsWith(".ani") ? "application/x-navi-animation" : "image/x-icon");
-    urls.push(url);
-    cursors[leaf] = url;
+    const image = await objectUrl(entry, leaf.endsWith(".ani") ? "application/x-navi-animation" : "image/x-icon");
+    urls.push(image.url);
+    cursors[leaf] = image.url;
   }
 
   const playlistText = await optionalText(zip, files, "pledit.txt");
@@ -159,6 +234,7 @@ export async function parseClassicSkin(bytes: Uint8Array, name = "Imported skin"
     hints: await optionalText(zip, files, "skin.hints"),
     genericColors: genericColors ? parseKeyValue(genericColors) : {},
     cursors,
+    glyphColors,
     dispose: () => urls.forEach((url) => URL.revokeObjectURL(url)),
   };
 }
@@ -174,6 +250,8 @@ export function skinCssVariables(skin: ClassicSkin | null): CSSProperties {
   if (colors.current) variables["--playlist-current"] = colors.current;
   if (colors.normalbg) variables["--playlist-bg"] = colors.normalbg;
   if (colors.selectedbg) variables["--playlist-selected"] = colors.selectedbg;
+  if (skin.glyphColors.text) variables["--display-text"] = skin.glyphColors.text;
+  if (skin.glyphColors.numbers) variables["--time-text"] = skin.glyphColors.numbers;
   if (skin.regionPaths.normal) variables["--skin-main-clip"] = skin.regionPaths.normal;
   if (skin.regionPaths.equalizer) variables["--skin-eq-clip"] = skin.regionPaths.equalizer;
   const cursor = Object.entries(skin.cursors).find(([name]) => name.endsWith(".cur"))?.[1]

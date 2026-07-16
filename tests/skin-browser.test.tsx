@@ -6,7 +6,9 @@ import { SkinBrowserPanel } from "../src/components/SkinBrowserPanel";
 const backend = vi.hoisted(() => ({
   browseSkinCatalog: vi.fn(),
   installCatalogSkin: vi.fn(),
+  listInstalledSkins: vi.fn(),
   onSkinBrowserOpened: vi.fn(),
+  selectInstalledSkin: vi.fn(),
   setPanelVisible: vi.fn(),
 }));
 
@@ -40,6 +42,14 @@ describe("skin browser", () => {
       hasMore: false,
     });
     backend.installCatalogSkin.mockResolvedValue({ id: "a".repeat(64), name: "Receiver", files: ["main.bmp"] });
+    backend.listInstalledSkins.mockResolvedValue([]);
+    backend.selectInstalledSkin.mockResolvedValue({
+      revision: 1,
+      queue: [],
+      playback: { revision: 1 },
+      settings: { selectedSkin: null },
+      layout: {},
+    });
   });
 
   it("browses and installs a catalog skin", async () => {
@@ -63,5 +73,27 @@ describe("skin browser", () => {
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
     await waitFor(() => expect(backend.browseSkinCatalog).toHaveBeenLastCalledWith("zelda", 0, 24));
+  });
+
+  it("shows and selects a locally installed skin", async () => {
+    backend.listInstalledSkins.mockResolvedValue([
+      { id: "b".repeat(64), name: "Local receiver", files: ["main.bmp"] },
+    ]);
+    render(<SkinBrowserPanel />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Local receiver" }));
+
+    expect(backend.selectInstalledSkin).toHaveBeenCalledWith("b".repeat(64));
+  });
+
+  it("loads installed skins even when the initial opened event was emitted too early", async () => {
+    backend.onSkinBrowserOpened.mockResolvedValue(vi.fn());
+    backend.listInstalledSkins.mockResolvedValue([
+      { id: "c".repeat(64), name: "Already installed", files: ["main.bmp"] },
+    ]);
+
+    render(<SkinBrowserPanel />);
+
+    expect(await screen.findByRole("button", { name: "Already installed" })).toBeInTheDocument();
   });
 });

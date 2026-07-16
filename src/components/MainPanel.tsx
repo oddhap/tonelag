@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppSnapshot } from "../bindings/contracts";
 import { addChosenFiles, addStreamUrl, player, reportError } from "../lib/actions";
-import { setPanelVisible } from "../lib/backend";
+import { quitApp, setPanelVisible } from "../lib/backend";
 import { displayTitle, formatTime } from "../lib/format";
 import { useClassicSkin } from "../lib/skin-store";
 import { PanelChrome } from "./PanelChrome";
@@ -52,6 +52,7 @@ export function MainPanel({ snapshot }: MainPanelProps) {
           <button className="micro-button" aria-pressed={settings.alwaysOnTop} onClick={() => void player({ type: "toggleAlwaysOnTop" })} title={t("alwaysOnTop")}>A</button>
           <button className="micro-button" aria-pressed={settings.doubleSize} onClick={() => void player({ type: "toggleDoubleSize" })} title="2×">2</button>
           <button className="micro-button" aria-pressed={settings.mainWinshade} onClick={() => void player({ type: "toggleWinshade" })} title="Winshade">W</button>
+          <button className="micro-button close-button" aria-label={t("quit")} onClick={() => void quitApp().catch(reportError)}>×</button>
         </>
       }
     >

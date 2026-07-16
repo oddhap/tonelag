@@ -28,63 +28,26 @@
         "transparent": true,
         "shadow": false,
         "center": true
-      },
-      {
-        "label": "equalizer",
-        "title": "Tonelag Equalizer",
-        "url": "index.html?panel=equalizer",
-        "width": 275,
-        "height": 116,
-        "minWidth": 275,
-        "minHeight": 116,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "shadow": false,
-        "visible": false,
-        "skipTaskbar": true
-      },
-      {
-        "label": "playlist",
-        "title": "Tonelag Playlist",
-        "url": "index.html?panel=playlist",
-        "width": 275,
-        "height": 232,
-        "minWidth": 275,
-        "minHeight": 116,
-        "resizable": true,
-        "decorations": false,
-        "transparent": true,
-        "shadow": false,
-        "visible": false,
-        "skipTaskbar": true
-      },
-      {
-        "label": "skins",
-        "title": "Tonelag Skin Browser",
-        "url": "index.html?panel=skins",
-        "width": 760,
-        "height": 620,
-        "minWidth": 520,
-        "minHeight": 420,
-        "resizable": true,
-        "decorations": true,
-        "transparent": false,
-        "visible": false,
-        "skipTaskbar": true,
-        "center": true
       }
     ]
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "category": "Music",
     "shortDescription": "Classic skin-compatible audio player",
     "longDescription": "An open-source desktop audio player compatible with Winamp Classic skin files.",
     "copyright": "Copyright 2026 Tonelag contributors",
     "resources": {
       "../assets/default-skin/model-275.wsz": "default-skin/model-275.wsz",
+      "../assets/default-skin/pastellplate.wsz": "default-skin/pastellplate.wsz",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     },
     "fileAssociations": [

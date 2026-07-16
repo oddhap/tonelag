@@ -90,10 +90,13 @@ their catalog MD5, and the normal archive safety checks still apply. No catalog
 request is made while the browser window is closed.
 
 Use **Import local skin** in that window to import a `.wsz` or `.zip` from disk.
-Missing individual resources fall back to the original project artwork. The
-generated fixture at
-[`assets/default-skin/model-275.wsz`](assets/default-skin/model-275.wsz)
-is MIT/Apache-2.0 and may be redistributed.
+Missing individual resources fall back to the original project artwork.
+Tonelag bundles the dark **Model 275** default and the light **Pastellplate**
+skin; Pastellplate is installed as a selectable local skin without changing the
+user's current selection. Both generated archives in
+[`assets/default-skin`](assets/default-skin) are MIT/Apache-2.0 and may be
+redistributed. Rebuild Pastellplate and its preview with
+`python3 scripts/generate_pastellplate_skin.py`.
 
 Museum skins are third-party works and are installed into the user's app-data
 directory; they are not committed to this repository or bundled in releases.

@@ -27,7 +27,7 @@ export const reportError = (error: unknown) => {
 export async function player(command: PlayerCommand) {
   if (!isTauri()) return;
   try {
-    acceptSnapshot(await sendPlayerCommand(command));
+    await sendPlayerCommand(command);
   } catch (error) {
     reportError(error);
   }

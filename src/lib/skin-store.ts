@@ -24,12 +24,13 @@ export async function loadSkinById(id: string | null) {
 }
 
 export async function chooseAndImportSkin() {
-  if (!isTauri()) return;
+  if (!isTauri()) return null;
   const path = await chooseSkin();
-  if (!path) return;
+  if (!path) return null;
   const descriptor = await importSkin(path);
   const bytes = await getSkinBytes(descriptor.id);
   publish(await parseClassicSkin(Uint8Array.from(bytes), descriptor.name), descriptor.id);
+  return descriptor;
 }
 
 export function useClassicSkin() {

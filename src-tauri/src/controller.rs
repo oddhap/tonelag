@@ -1,6 +1,6 @@
 use std::{
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -15,38 +15,36 @@ use crate::{
 };
 
 pub struct AppController {
-    state: Mutex<AppSnapshot>,
+    state: Arc<Mutex<AppSnapshot>>,
     data_dir: PathBuf,
-    audio: AudioController,
+    deferred_saver: persistence::DeferredSaver,
+    audio: Mutex<Option<AudioController>>,
     system_media: Mutex<Option<std::sync::mpsc::Sender<crate::system_media::MediaUpdate>>>,
 }
 
 impl AppController {
-    pub fn new(
-        data_dir: PathBuf,
-    ) -> Result<(Self, tokio::sync::mpsc::UnboundedReceiver<AudioEvent>)> {
+    pub fn new(data_dir: PathBuf) -> Result<Self> {
         let snapshot = persistence::load(&data_dir).unwrap_or_else(|error| {
             log::warn!("Could not restore the previous session: {error:#}");
             AppSnapshot::default()
         });
-        let (audio, events) = AudioController::new(
-            snapshot.settings.volume,
-            snapshot.settings.balance,
-            snapshot.settings.eq.clone(),
-        )?;
-        Ok((
-            Self {
-                state: Mutex::new(snapshot),
-                data_dir,
-                audio,
-                system_media: Mutex::new(None),
-            },
-            events,
-        ))
+        let state = Arc::new(Mutex::new(snapshot));
+        let deferred_saver = persistence::DeferredSaver::new(data_dir.clone(), state.clone())?;
+        Ok(Self {
+            state,
+            data_dir,
+            deferred_saver,
+            audio: Mutex::new(None),
+            system_media: Mutex::new(None),
+        })
     }
 
     pub fn snapshot(&self) -> AppSnapshot {
         self.state.lock().expect("state lock poisoned").clone()
+    }
+
+    pub fn save_before_exit(&self) -> Result<()> {
+        persistence::save(&self.data_dir, &self.snapshot())
     }
 
     pub fn attach_system_media(
@@ -59,6 +57,44 @@ impl AppController {
             .system_media
             .lock()
             .expect("system media lock poisoned") = Some(sender);
+    }
+
+    pub fn initialize_audio(&self, app: &AppHandle) -> Result<()> {
+        let mut audio = self.audio.lock().expect("audio lock poisoned");
+        if audio.is_some() {
+            return Ok(());
+        }
+        let settings = self
+            .state
+            .lock()
+            .expect("state lock poisoned")
+            .settings
+            .clone();
+        let (controller, mut events) =
+            AudioController::new(settings.volume, settings.balance, settings.eq)?;
+        *audio = Some(controller);
+        drop(audio);
+
+        let app_handle = app.clone();
+        let event_controller = app.state::<Arc<AppController>>().inner().clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(event) = events.recv().await {
+                event_controller.handle_audio_event(event, &app_handle);
+            }
+        });
+        Ok(())
+    }
+
+    fn send_audio(&self, command: AudioCommand, app: &AppHandle) -> Result<()> {
+        self.initialize_audio(app)?;
+        self.send_audio_if_initialized(command)
+    }
+
+    fn send_audio_if_initialized(&self, command: AudioCommand) -> Result<()> {
+        if let Some(audio) = self.audio.lock().expect("audio lock poisoned").as_ref() {
+            audio.send(command)?;
+        }
+        Ok(())
     }
 
     pub fn add_paths(&self, paths: Vec<String>, app: &AppHandle) -> Result<AppSnapshot> {
@@ -107,7 +143,7 @@ impl AppController {
             .current_item_id
             .is_some_and(|id| ids.contains(&id));
         if removing_current {
-            self.audio.send(AudioCommand::Stop)?;
+            self.send_audio_if_initialized(AudioCommand::Stop)?;
         }
         let snapshot = self.mutate_persistent(|state| {
             state.queue.retain(|item| !ids.contains(&item.id));
@@ -125,7 +161,7 @@ impl AppController {
     }
 
     pub fn clear_queue(&self, app: &AppHandle) -> Result<AppSnapshot> {
-        self.audio.send(AudioCommand::Stop)?;
+        self.send_audio_if_initialized(AudioCommand::Stop)?;
         let snapshot = self.mutate_persistent(|state| {
             state.queue.clear();
             state.playback = Default::default();
@@ -152,7 +188,7 @@ impl AppController {
 
     pub fn import_eqf(&self, path: &Path, app: &AppHandle) -> Result<AppSnapshot> {
         let eq = eqf::import(path)?;
-        self.audio.send(AudioCommand::SetEq(eq.clone()))?;
+        self.send_audio_if_initialized(AudioCommand::SetEq(eq.clone()))?;
         let snapshot = self.mutate_persistent(|state| state.settings.eq = eq)?;
         emit_snapshot(app, &snapshot);
         Ok(snapshot)
@@ -170,6 +206,12 @@ impl AppController {
     pub fn import_skin(&self, path: &Path, app: &AppHandle) -> Result<skin::SkinDescriptor> {
         let descriptor = skin::import(path, &self.skins_dir())?;
         self.select_skin(descriptor, app)
+    }
+
+    pub fn install_bundled_skin(&self, path: &Path, name: &str) -> Result<skin::SkinDescriptor> {
+        let bytes = std::fs::read(path)
+            .with_context(|| format!("failed reading bundled skin: {}", path.display()))?;
+        skin::install_bytes(name, &bytes, &self.skins_dir())
     }
 
     pub async fn install_catalog_skin(
@@ -200,6 +242,23 @@ impl AppController {
         skin::read_bytes(&self.skins_dir(), id)
     }
 
+    pub fn list_skins(&self) -> Result<Vec<skin::SkinDescriptor>> {
+        skin::list(&self.skins_dir())
+    }
+
+    pub fn select_installed_skin(
+        &self,
+        id: Option<String>,
+        app: &AppHandle,
+    ) -> Result<AppSnapshot> {
+        if let Some(id) = id.as_deref() {
+            skin::read_bytes(&self.skins_dir(), id)?;
+        }
+        let snapshot = self.mutate_persistent(|state| state.settings.selected_skin = id)?;
+        emit_snapshot(app, &snapshot);
+        Ok(snapshot)
+    }
+
     pub fn player_command(&self, command: PlayerCommand, app: &AppHandle) -> Result<AppSnapshot> {
         match command {
             PlayerCommand::Play => {
@@ -212,14 +271,14 @@ impl AppController {
                 };
                 if let Some(item) = item {
                     if self.snapshot().playback.status == PlaybackStatus::Stopped {
-                        self.audio.send(AudioCommand::Load(item))?;
+                        self.send_audio(AudioCommand::Load(item), app)?;
                     } else {
-                        self.audio.send(AudioCommand::Play)?;
+                        self.send_audio(AudioCommand::Play, app)?;
                     }
                 }
             }
-            PlayerCommand::Pause => self.audio.send(AudioCommand::Pause)?,
-            PlayerCommand::Stop => self.audio.send(AudioCommand::Stop)?,
+            PlayerCommand::Pause => self.send_audio(AudioCommand::Pause, app)?,
+            PlayerCommand::Stop => self.send_audio_if_initialized(AudioCommand::Stop)?,
             PlayerCommand::Load { item_id } => {
                 let item = {
                     let mut state = self.state.lock().expect("state lock poisoned");
@@ -227,11 +286,11 @@ impl AppController {
                     state.queue.iter().find(|item| item.id == item_id).cloned()
                 }
                 .context("queue item does not exist")?;
-                self.audio.send(AudioCommand::Load(item))?;
+                self.send_audio(AudioCommand::Load(item), app)?;
             }
             PlayerCommand::Seek { position_ms } => {
                 if self.snapshot().playback.capabilities.seekable {
-                    self.audio.send(AudioCommand::Seek(position_ms))?;
+                    self.send_audio(AudioCommand::Seek(position_ms), app)?;
                     let mut state = self.state.lock().expect("state lock poisoned");
                     state.playback.position_ms = position_ms;
                 }
@@ -239,23 +298,23 @@ impl AppController {
             PlayerCommand::Next => self.load_relative(1)?,
             PlayerCommand::Previous => self.load_relative(-1)?,
             PlayerCommand::SetVolume { value } => {
-                self.audio.send(AudioCommand::SetVolume(value))?;
+                self.send_audio_if_initialized(AudioCommand::SetVolume(value))?;
                 self.mutate_persistent(|state| state.settings.volume = value.clamp(0.0, 1.0))?;
             }
             PlayerCommand::SetBalance { value } => {
-                self.audio.send(AudioCommand::SetBalance(value))?;
+                self.send_audio_if_initialized(AudioCommand::SetBalance(value))?;
                 self.mutate_persistent(|state| state.settings.balance = value.clamp(-1.0, 1.0))?;
             }
             PlayerCommand::SetEqEnabled { enabled } => {
                 let snapshot =
                     self.mutate_persistent(|state| state.settings.eq.enabled = enabled)?;
-                self.audio.send(AudioCommand::SetEq(snapshot.settings.eq))?;
+                self.send_audio_if_initialized(AudioCommand::SetEq(snapshot.settings.eq))?;
             }
             PlayerCommand::SetPreamp { value_db } => {
                 let snapshot = self.mutate_persistent(|state| {
                     state.settings.eq.preamp_db = value_db.clamp(-12.0, 12.0)
                 })?;
-                self.audio.send(AudioCommand::SetEq(snapshot.settings.eq))?;
+                self.send_audio_if_initialized(AudioCommand::SetEq(snapshot.settings.eq))?;
             }
             PlayerCommand::SetEqBand { index, value_db } => {
                 let snapshot = self.mutate_persistent(|state| {
@@ -263,7 +322,7 @@ impl AppController {
                         *band = value_db.clamp(-12.0, 12.0);
                     }
                 })?;
-                self.audio.send(AudioCommand::SetEq(snapshot.settings.eq))?;
+                self.send_audio_if_initialized(AudioCommand::SetEq(snapshot.settings.eq))?;
             }
             PlayerCommand::ToggleShuffle => {
                 self.mutate_persistent(|state| state.settings.shuffle = !state.settings.shuffle)?;
@@ -311,7 +370,9 @@ impl AppController {
 
     pub fn handle_audio_event(&self, event: AudioEvent, app: &AppHandle) {
         let mut load_next = false;
-        let snapshot = {
+        let queue_changed = matches!(&event, AudioEvent::Loaded { .. });
+        let media_changed = !matches!(&event, AudioEvent::Position(_) | AudioEvent::Spectrum(_));
+        let (playback, queue) = {
             let mut state = self.state.lock().expect("state lock poisoned");
             match event {
                 AudioEvent::Loading => {
@@ -370,20 +431,50 @@ impl AppController {
             }
             state.revision += 1;
             state.playback.revision = state.revision;
-            state.clone()
+            let queue = queue_changed.then(|| state.queue.clone());
+            (state.playback.clone(), queue)
         };
-        emit_snapshot(app, &snapshot);
-        self.update_system_media(&snapshot);
+        let _ = app.emit("player://snapshot", &playback);
+        if let Some(queue) = queue {
+            let _ = app.emit_to("playlist", "queue://snapshot", &queue);
+            if self
+                .state
+                .lock()
+                .expect("state lock poisoned")
+                .layout
+                .combined
+            {
+                let _ = app.emit_to("main", "queue://snapshot", &queue);
+            }
+        }
+        if media_changed {
+            self.update_system_media(&self.snapshot());
+        }
         if load_next && let Err(error) = self.advance_after_end() {
             log::warn!("Could not advance to next item: {error:#}");
         }
     }
 
     pub fn emit_position(&self, app: &AppHandle) {
-        if self.snapshot().playback.status != PlaybackStatus::Playing {
+        if self
+            .state
+            .lock()
+            .expect("state lock poisoned")
+            .playback
+            .status
+            != PlaybackStatus::Playing
+        {
             return;
         }
-        self.handle_audio_event(AudioEvent::Position(self.audio.position_ms()), app);
+        let position = self
+            .audio
+            .lock()
+            .expect("audio lock poisoned")
+            .as_ref()
+            .map(AudioController::position_ms);
+        if let Some(position) = position {
+            self.handle_audio_event(AudioEvent::Position(position), app);
+        }
     }
 
     pub fn configure_windows(&self, app: &AppHandle) -> Result<()> {
@@ -391,16 +482,7 @@ impl AppController {
         let main = app
             .get_webview_window("main")
             .context("main window missing")?;
-        let equalizer = app
-            .get_webview_window("equalizer")
-            .context("equalizer window missing")?;
-        let playlist = app
-            .get_webview_window("playlist")
-            .context("playlist window missing")?;
-
         if wayland {
-            equalizer.hide()?;
-            playlist.hide()?;
             main.set_size(tauri::LogicalSize::new(275.0, 464.0))?;
             let snapshot = self.mutate_persistent(|state| state.layout.combined = true)?;
             emit_snapshot(app, &snapshot);
@@ -410,20 +492,6 @@ impl AppController {
                 snapshot.layout.main.x,
                 snapshot.layout.main.y,
             ))?;
-            equalizer.set_position(tauri::LogicalPosition::new(
-                snapshot.layout.equalizer.x,
-                snapshot.layout.equalizer.y,
-            ))?;
-            playlist.set_position(tauri::LogicalPosition::new(
-                snapshot.layout.playlist.x,
-                snapshot.layout.playlist.y,
-            ))?;
-            if snapshot.layout.equalizer_visible {
-                equalizer.show()?;
-            }
-            if snapshot.layout.playlist_visible {
-                playlist.show()?;
-            }
         }
         let snapshot = self.snapshot();
         self.apply_window_sizes(app, &snapshot)?;
@@ -432,6 +500,26 @@ impl AppController {
                 window.set_always_on_top(snapshot.settings.always_on_top)?;
             }
         }
+        Ok(())
+    }
+
+    pub fn restore_visible_windows(&self, app: &AppHandle) -> Result<()> {
+        let snapshot = self.snapshot();
+        if snapshot.layout.combined {
+            return Ok(());
+        }
+        if snapshot.layout.equalizer_visible {
+            self.ensure_panel_window(app, "equalizer")?.show()?;
+        }
+        if snapshot.layout.playlist_visible {
+            self.ensure_panel_window(app, "playlist")?.show()?;
+        }
+        refresh_native_window_group(
+            app,
+            &snapshot.layout,
+            snapshot.settings.double_size,
+            snapshot.settings.main_winshade,
+        );
         Ok(())
     }
 
@@ -481,14 +569,12 @@ impl AppController {
             return Err(anyhow!("unknown panel"));
         }
         if panel == "skins" {
-            let window = app
-                .get_webview_window(panel)
-                .context("skin browser window does not exist")?;
             if visible {
+                let window = self.ensure_panel_window(app, panel)?;
                 window.show()?;
                 window.set_focus()?;
                 let _ = app.emit_to("skins", "skin-browser://opened", ());
-            } else {
+            } else if let Some(window) = app.get_webview_window(panel) {
                 window.hide()?;
             }
             return Ok(());
@@ -496,13 +582,11 @@ impl AppController {
         if self.snapshot().layout.combined {
             return Ok(());
         }
-        let window = app
-            .get_webview_window(panel)
-            .with_context(|| format!("window '{panel}' does not exist"))?;
         if visible {
+            let window = self.ensure_panel_window(app, panel)?;
             window.show()?;
             window.set_focus()?;
-        } else {
+        } else if let Some(window) = app.get_webview_window(panel) {
             window.hide()?;
         }
         let snapshot = self.mutate_persistent(|state| match panel {
@@ -512,6 +596,12 @@ impl AppController {
         })?;
         emit_snapshot(app, &snapshot);
         let _ = app.emit("layout://changed", &snapshot.layout);
+        refresh_native_window_group(
+            app,
+            &snapshot.layout,
+            snapshot.settings.double_size,
+            snapshot.settings.main_winshade,
+        );
         Ok(())
     }
 
@@ -526,30 +616,29 @@ impl AppController {
             return;
         }
         let position = position.to_logical::<f64>(scale_factor);
-        let previous = self.snapshot();
-        if previous.layout.combined {
+        let (previous, double_size, main_winshade) = {
+            let state = self.state.lock().expect("state lock poisoned");
+            (
+                state.layout.clone(),
+                state.settings.double_size,
+                state.settings.main_winshade,
+            )
+        };
+        if previous.combined {
             return;
         }
         let old = match label {
-            "main" => &previous.layout.main,
-            "equalizer" => &previous.layout.equalizer,
-            "playlist" => &previous.layout.playlist,
+            "main" => &previous.main,
+            "equalizer" => &previous.equalizer,
+            "playlist" => &previous.playlist,
             _ => return,
         };
         if (old.x - position.x).abs() < 0.1 && (old.y - position.y).abs() < 0.1 {
             return;
         }
 
-        let scale = if previous.settings.double_size {
-            2.0
-        } else {
-            1.0
-        };
-        let main_height = if previous.settings.main_winshade {
-            14.0
-        } else {
-            116.0
-        } * scale;
+        let scale = if double_size { 2.0 } else { 1.0 };
+        let main_height = if main_winshade { 14.0 } else { 116.0 } * scale;
         let eq_height = 116.0 * scale;
         let width = 275.0 * scale;
         let mut target = crate::model::WindowPoint {
@@ -560,24 +649,16 @@ impl AppController {
         let mut grouped_playlist = None;
 
         if label == "main" {
-            let delta_x = target.x - previous.layout.main.x;
-            let delta_y = target.y - previous.layout.main.y;
-            if attached_below(
-                &previous.layout.main,
-                main_height,
-                &previous.layout.equalizer,
-            ) {
+            let delta_x = target.x - previous.main.x;
+            let delta_y = target.y - previous.main.y;
+            if attached_below(&previous.main, main_height, &previous.equalizer) {
                 grouped_eq = Some(crate::model::WindowPoint {
-                    x: previous.layout.equalizer.x + delta_x,
-                    y: previous.layout.equalizer.y + delta_y,
+                    x: previous.equalizer.x + delta_x,
+                    y: previous.equalizer.y + delta_y,
                 });
             }
-            let playlist_anchor = grouped_eq.as_ref().unwrap_or(&previous.layout.equalizer);
-            if attached_below(
-                &previous.layout.equalizer,
-                eq_height,
-                &previous.layout.playlist,
-            ) {
+            let playlist_anchor = grouped_eq.as_ref().unwrap_or(&previous.equalizer);
+            if attached_below(&previous.equalizer, eq_height, &previous.playlist) {
                 grouped_playlist = Some(crate::model::WindowPoint {
                     x: playlist_anchor.x,
                     y: playlist_anchor.y + eq_height,
@@ -586,23 +667,20 @@ impl AppController {
         } else {
             let anchors = if label == "equalizer" {
                 vec![
-                    (&previous.layout.main, main_height),
-                    (
-                        &previous.layout.playlist,
-                        previous.layout.playlist_height * scale,
-                    ),
+                    (&previous.main, main_height),
+                    (&previous.playlist, previous.playlist_height * scale),
                 ]
             } else {
                 vec![
-                    (&previous.layout.main, main_height),
-                    (&previous.layout.equalizer, eq_height),
+                    (&previous.main, main_height),
+                    (&previous.equalizer, eq_height),
                 ]
             };
             target = snap_to_windows(
                 target,
                 width,
                 if label == "playlist" {
-                    previous.layout.playlist_height * scale
+                    previous.playlist_height * scale
                 } else {
                     eq_height
                 },
@@ -610,7 +688,8 @@ impl AppController {
             );
         }
 
-        let snapshot = match self.mutate_persistent(|state| {
+        let layout = {
+            let mut state = self.state.lock().expect("state lock poisoned");
             match label {
                 "main" => state.layout.main = target,
                 "equalizer" => state.layout.equalizer = target,
@@ -623,13 +702,13 @@ impl AppController {
             if let Some(point) = grouped_playlist {
                 state.layout.playlist = point;
             }
-        }) {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                log::warn!("Could not save window position: {error:#}");
-                return;
-            }
+            state.revision += 1;
+            state.playback.revision = state.revision;
+            state.layout.clone()
         };
+        if let Err(error) = self.deferred_saver.schedule() {
+            log::warn!("Could not schedule window position save: {error:#}");
+        }
 
         if ((target.x - position.x).abs() >= 0.1 || (target.y - position.y).abs() >= 0.1)
             && let Some(window) = app.get_webview_window(label)
@@ -640,33 +719,46 @@ impl AppController {
             if let Some(point) = point
                 && let Some(window) = app.get_webview_window(window_label)
             {
+                #[cfg(not(target_os = "macos"))]
                 let _ = window.set_position(tauri::LogicalPosition::new(point.x, point.y));
+                #[cfg(target_os = "macos")]
+                let _ = (window, point);
             }
         }
-        emit_snapshot(app, &snapshot);
-        let _ = app.emit("layout://changed", &snapshot.layout);
+        let _ = app.emit("layout://changed", &layout);
+        if label != "main" {
+            refresh_native_window_group(app, &layout, double_size, main_winshade);
+        }
     }
 
     pub fn handle_playlist_resized(&self, app: &AppHandle, height: u32, scale_factor: f64) {
-        let snapshot = self.snapshot();
-        if snapshot.layout.combined {
-            return;
-        }
-        let interface_scale = if snapshot.settings.double_size {
-            2.0
-        } else {
-            1.0
+        let (combined, double_size, playlist_height) = {
+            let state = self.state.lock().expect("state lock poisoned");
+            (
+                state.layout.combined,
+                state.settings.double_size,
+                state.layout.playlist_height,
+            )
         };
-        let logical_height = f64::from(height) / scale_factor / interface_scale;
-        if (logical_height - snapshot.layout.playlist_height).abs() < 0.5 {
+        if combined {
             return;
         }
-        if let Ok(snapshot) =
-            self.mutate_persistent(|state| state.layout.playlist_height = logical_height.max(116.0))
-        {
-            emit_snapshot(app, &snapshot);
-            let _ = app.emit("layout://changed", &snapshot.layout);
+        let interface_scale = if double_size { 2.0 } else { 1.0 };
+        let logical_height = f64::from(height) / scale_factor / interface_scale;
+        if (logical_height - playlist_height).abs() < 0.5 {
+            return;
         }
+        let layout = {
+            let mut state = self.state.lock().expect("state lock poisoned");
+            state.layout.playlist_height = logical_height.max(116.0);
+            state.revision += 1;
+            state.playback.revision = state.revision;
+            state.layout.clone()
+        };
+        if let Err(error) = self.deferred_saver.schedule() {
+            log::warn!("Could not schedule playlist size save: {error:#}");
+        }
+        let _ = app.emit("layout://changed", &layout);
     }
 
     fn load_relative(&self, offset: isize) -> Result<()> {
@@ -702,7 +794,7 @@ impl AppController {
             state.playback.current_item_id = Some(item.id);
             item
         };
-        self.audio.send(AudioCommand::Load(item))
+        self.send_audio_if_initialized(AudioCommand::Load(item))
     }
 
     fn advance_after_end(&self) -> Result<()> {
@@ -717,7 +809,7 @@ impl AppController {
                 && current.is_some_and(|index| index + 1 >= state.queue.len())
         };
         if should_stop {
-            self.audio.send(AudioCommand::Stop)
+            self.send_audio_if_initialized(AudioCommand::Stop)
         } else {
             self.load_relative(1)
         }
@@ -731,12 +823,60 @@ impl AppController {
             state.playback.revision = state.revision;
             state.clone()
         };
-        persistence::save(&self.data_dir, &snapshot)?;
+        self.deferred_saver.schedule()?;
         Ok(snapshot)
     }
 
     fn skins_dir(&self) -> PathBuf {
         self.data_dir.join("skins")
+    }
+
+    fn ensure_panel_window(&self, app: &AppHandle, panel: &str) -> Result<tauri::WebviewWindow> {
+        if let Some(window) = app.get_webview_window(panel) {
+            return Ok(window);
+        }
+        let snapshot = self.snapshot();
+        let (title, width, height, min_height, resizable, transparent) = match panel {
+            "equalizer" => ("Tonelag Equalizer", 275.0, 116.0, 116.0, false, true),
+            "playlist" => (
+                "Tonelag Playlist",
+                275.0,
+                snapshot.layout.playlist_height.max(116.0),
+                116.0,
+                true,
+                true,
+            ),
+            "skins" => ("Tonelag Skin Browser", 620.0, 520.0, 380.0, true, false),
+            _ => return Err(anyhow!("unknown panel")),
+        };
+        let mut builder = tauri::WebviewWindowBuilder::new(
+            app,
+            panel,
+            tauri::WebviewUrl::App(format!("index.html?panel={panel}").into()),
+        )
+        .title(title)
+        .inner_size(width, height)
+        .min_inner_size(if panel == "skins" { 480.0 } else { 275.0 }, min_height)
+        .resizable(resizable)
+        .decorations(false)
+        .transparent(transparent)
+        .shadow(false)
+        .visible(false)
+        .skip_taskbar(true);
+        if panel == "skins" {
+            builder = builder.center();
+        }
+        let window = builder.build()?;
+        if panel != "skins" {
+            let point = if panel == "equalizer" {
+                &snapshot.layout.equalizer
+            } else {
+                &snapshot.layout.playlist
+            };
+            window.set_position(tauri::LogicalPosition::new(point.x, point.y))?;
+            window.set_always_on_top(snapshot.settings.always_on_top)?;
+        }
+        Ok(window)
     }
 
     fn update_system_media(&self, snapshot: &AppSnapshot) {
@@ -757,9 +897,29 @@ fn current_item(state: &AppSnapshot) -> Option<&QueueItem> {
 }
 
 fn emit_snapshot(app: &AppHandle, snapshot: &AppSnapshot) {
-    let _ = app.emit("app://snapshot", snapshot);
+    let lightweight = AppSnapshot {
+        revision: snapshot.revision,
+        queue: snapshot
+            .playback
+            .current_item_id
+            .and_then(|id| snapshot.queue.iter().find(|item| item.id == id))
+            .cloned()
+            .into_iter()
+            .collect(),
+        playback: snapshot.playback.clone(),
+        settings: snapshot.settings.clone(),
+        layout: snapshot.layout.clone(),
+    };
+    for label in ["equalizer", "skins"] {
+        let _ = app.emit_to(label, "app://snapshot", &lightweight);
+    }
+    if snapshot.layout.combined {
+        let _ = app.emit_to("main", "app://snapshot", snapshot);
+    } else {
+        let _ = app.emit_to("main", "app://snapshot", &lightweight);
+        let _ = app.emit_to("playlist", "app://snapshot", snapshot);
+    }
     let _ = app.emit("player://snapshot", &snapshot.playback);
-    let _ = app.emit("queue://snapshot", &snapshot.queue);
 }
 
 fn is_playlist(path: &Path) -> bool {
@@ -820,6 +980,103 @@ fn is_supported_audio(path: &Path) -> bool {
 
 const SNAP_DISTANCE: f64 = 10.0;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PlaylistParent {
+    Main,
+    Equalizer,
+}
+
+fn native_group_edges(
+    layout: &crate::model::WindowLayout,
+    double_size: bool,
+    main_winshade: bool,
+) -> (bool, Option<PlaylistParent>) {
+    let scale = if double_size { 2.0 } else { 1.0 };
+    let main_height = if main_winshade { 14.0 } else { 116.0 } * scale;
+    let equalizer_height = 116.0 * scale;
+    let equalizer_to_main =
+        layout.equalizer_visible && attached_below(&layout.main, main_height, &layout.equalizer);
+    let playlist_parent = if !layout.playlist_visible {
+        None
+    } else if layout.equalizer_visible
+        && attached_below(&layout.equalizer, equalizer_height, &layout.playlist)
+    {
+        Some(PlaylistParent::Equalizer)
+    } else if attached_below(&layout.main, main_height, &layout.playlist) {
+        Some(PlaylistParent::Main)
+    } else {
+        None
+    };
+    (equalizer_to_main, playlist_parent)
+}
+
+#[cfg(target_os = "macos")]
+fn refresh_native_window_group(
+    app: &AppHandle,
+    layout: &crate::model::WindowLayout,
+    double_size: bool,
+    main_winshade: bool,
+) {
+    use objc2_app_kit::{NSWindow, NSWindowOrderingMode};
+
+    let Some(main) = app.get_webview_window("main") else {
+        return;
+    };
+    let Some(equalizer) = app.get_webview_window("equalizer") else {
+        return;
+    };
+    let Some(playlist) = app.get_webview_window("playlist") else {
+        return;
+    };
+    let Ok(main_pointer) = main.ns_window() else {
+        return;
+    };
+    let Ok(equalizer_pointer) = equalizer.ns_window() else {
+        return;
+    };
+    let Ok(playlist_pointer) = playlist.ns_window() else {
+        return;
+    };
+    let main_pointer = main_pointer as usize;
+    let equalizer_pointer = equalizer_pointer as usize;
+    let playlist_pointer = playlist_pointer as usize;
+    let (equalizer_to_main, playlist_parent) =
+        native_group_edges(layout, double_size, main_winshade);
+    let _ = app.run_on_main_thread(move || unsafe {
+        let main = &*(main_pointer as *const NSWindow);
+        let equalizer = &*(equalizer_pointer as *const NSWindow);
+        let playlist = &*(playlist_pointer as *const NSWindow);
+
+        if let Some(parent) = equalizer.parentWindow() {
+            parent.removeChildWindow(equalizer);
+        }
+        if let Some(parent) = playlist.parentWindow() {
+            parent.removeChildWindow(playlist);
+        }
+        if equalizer_to_main {
+            main.addChildWindow_ordered(equalizer, NSWindowOrderingMode::Above);
+        }
+        match playlist_parent {
+            Some(PlaylistParent::Main) => {
+                main.addChildWindow_ordered(playlist, NSWindowOrderingMode::Above)
+            }
+            Some(PlaylistParent::Equalizer) => {
+                equalizer.addChildWindow_ordered(playlist, NSWindowOrderingMode::Above)
+            }
+            None => {}
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn refresh_native_window_group(
+    _app: &AppHandle,
+    _layout: &crate::model::WindowLayout,
+    _double_size: bool,
+    _main_winshade: bool,
+) {
+}
+
 fn attached_below(
     top: &crate::model::WindowPoint,
     top_height: f64,
@@ -878,5 +1135,14 @@ mod window_tests {
         assert!(is_playlist(Path::new("MIX.M3U8")));
         assert!(has_extension(Path::new("theme.WSZ"), "wsz"));
         assert!(has_extension(Path::new("preset.EQF"), "eqf"));
+    }
+
+    #[test]
+    fn builds_native_chain_for_a_classic_three_window_stack() {
+        let layout = crate::model::WindowLayout::default();
+        assert_eq!(
+            native_group_edges(&layout, false, false),
+            (true, Some(PlaylistParent::Equalizer))
+        );
     }
 }
