@@ -121,12 +121,12 @@ export function PlaylistPanel({ snapshot }: { snapshot: AppSnapshot }) {
       </div>
       <footer className="playlist-footer">
         <div className="playlist-menu">
-          <button onClick={() => void addChosenFiles()}>{t("add")}</button>
-          <button onClick={() => void addChosenFolder()}>DIR</button>
-          <button disabled={!selected.size} onClick={() => { void removeSelected([...selected]); setSelected(new Set()); }}>{t("remove")}</button>
-          <button disabled={!selected.size} onClick={cropSelection}>{t("crop")}</button>
-          <button disabled={!snapshot.queue.length} onClick={() => void clearAll()}>{t("clear")}</button>
-          <button disabled={!snapshot.queue.length} onClick={() => void savePlaylist()}>{t("save")}</button>
+          <button className="playlist-add-button" onClick={() => void addChosenFiles()}>{t("add")}</button>
+          <button className="playlist-dir-button" onClick={() => void addChosenFolder()}>DIR</button>
+          <button className="playlist-remove-button" disabled={!selected.size} onClick={() => { void removeSelected([...selected]); setSelected(new Set()); }}>{t("remove")}</button>
+          <button className="playlist-crop-button" disabled={!selected.size} onClick={cropSelection}>{t("crop")}</button>
+          <button className="playlist-clear-button" disabled={!snapshot.queue.length} onClick={() => void clearAll()}>{t("clear")}</button>
+          <button className="playlist-save-button" disabled={!snapshot.queue.length} onClick={() => void savePlaylist()}>{t("save")}</button>
         </div>
         <output>{formatTime(totalDuration)}</output>
       </footer>

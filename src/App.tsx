@@ -7,7 +7,7 @@ import { SkinBrowserPanel } from "./components/SkinBrowserPanel";
 import { addPaths, isTauri, notifyFrontendReady, onDroppedPaths } from "./lib/backend";
 import { reportError } from "./lib/actions";
 import { loadSkinById, useClassicSkin } from "./lib/skin-store";
-import { skinCssVariables } from "./lib/skin";
+import { skinCssClasses, skinCssVariables } from "./lib/skin";
 import { acceptSnapshot, useAppSnapshot } from "./lib/store";
 
 type Panel = "main" | "equalizer" | "playlist" | "combined" | "skins";
@@ -60,7 +60,7 @@ export default function App() {
   }, []);
 
   return (
-    <main className={`app-shell panel-${panel} ${skin ? "has-imported-skin" : ""} ${panel !== "skins" && snapshot.settings.doubleSize ? "double-size" : ""} ${panel !== "skins" && snapshot.settings.mainWinshade ? "winshade" : ""}`} style={skinCssVariables(skin)}>
+    <main className={`app-shell panel-${panel} ${skin ? "has-imported-skin" : ""} ${skinCssClasses(skin)} ${panel !== "skins" && snapshot.settings.doubleSize ? "double-size" : ""} ${panel !== "skins" && snapshot.settings.mainWinshade ? "winshade" : ""}`} style={skinCssVariables(skin)}>
       {(panel === "main" || panel === "combined") && <MainPanel snapshot={snapshot} />}
       {(panel === "equalizer" || panel === "combined") && <EqualizerPanel snapshot={snapshot} />}
       {(panel === "playlist" || panel === "combined") && <PlaylistPanel snapshot={snapshot} />}

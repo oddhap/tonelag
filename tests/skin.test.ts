@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseClassicSkin, skinCssVariables } from "../src/lib/skin";
+import { parseClassicSkin, skinCssClasses, skinCssVariables } from "../src/lib/skin";
 
 function twoPixelBmp(red: number, green: number, blue: number) {
   const bytes = new Uint8Array(62);
@@ -61,5 +61,17 @@ describe("classic skin parser", () => {
 
     expect(variables["--display-text"]).toBe("rgb(204, 51, 34)");
     expect(variables["--time-text"]).toBe("rgb(68, 102, 238)");
+  });
+
+  it("exposes feature classes only for sprite sheets present in the skin", async () => {
+    const zip = new JSZip();
+    zip.file("MAIN.BMP", new Uint8Array([0x42, 0x4d]));
+    zip.file("CBUTTONS.BMP", new Uint8Array([0x42, 0x4d]));
+    zip.file("EQMAIN.BMP", new Uint8Array([0x42, 0x4d]));
+    const skin = await parseClassicSkin(await zip.generateAsync({ type: "uint8array" }));
+
+    expect(skinCssClasses(skin)).toContain("has-skin-cbuttons");
+    expect(skinCssClasses(skin)).toContain("has-skin-eqmain");
+    expect(skinCssClasses(skin)).not.toContain("has-skin-shufrep");
   });
 });

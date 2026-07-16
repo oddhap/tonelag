@@ -208,10 +208,43 @@ impl AppController {
         self.select_skin(descriptor, app)
     }
 
-    pub fn install_bundled_skin(&self, path: &Path, name: &str) -> Result<skin::SkinDescriptor> {
+    pub fn install_bundled_skin(
+        &self,
+        path: &Path,
+        name: &str,
+        obsolete_ids: &[&str],
+    ) -> Result<skin::SkinDescriptor> {
         let bytes = std::fs::read(path)
             .with_context(|| format!("failed reading bundled skin: {}", path.display()))?;
-        skin::install_bytes(name, &bytes, &self.skins_dir())
+        let skins_dir = self.skins_dir();
+        let descriptor = skin::install_bytes(name, &bytes, &skins_dir)?;
+        self.mutate_persistent(|state| {
+            if state
+                .settings
+                .selected_skin
+                .as_deref()
+                .is_some_and(|id| obsolete_ids.contains(&id))
+            {
+                state.settings.selected_skin = Some(descriptor.id.clone());
+            }
+        })?;
+        for id in obsolete_ids {
+            if *id == descriptor.id {
+                continue;
+            }
+            for extension in ["wsz", "json"] {
+                let path = skins_dir.join(format!("{id}.{extension}"));
+                if let Err(error) = std::fs::remove_file(&path)
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    log::warn!(
+                        "Could not remove obsolete bundled skin {}: {error}",
+                        path.display()
+                    );
+                }
+            }
+        }
+        Ok(descriptor)
     }
 
     pub async fn install_catalog_skin(

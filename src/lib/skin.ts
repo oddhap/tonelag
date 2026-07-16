@@ -259,3 +259,10 @@ export function skinCssVariables(skin: ClassicSkin | null): CSSProperties {
   if (cursor) variables["--skin-cursor"] = `url("${cursor}"), default`;
   return variables as CSSProperties;
 }
+
+export function skinCssClasses(skin: ClassicSkin | null): string {
+  if (!skin) return "";
+  return Object.keys(skin.images)
+    .map((name) => `has-skin-${name.replace(".bmp", "").replaceAll("_", "-")}`)
+    .join(" ");
+}

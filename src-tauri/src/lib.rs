@@ -273,7 +273,11 @@ pub fn run() {
                 .join("default-skin")
                 .join("pastellplate.wsz");
             if bundled_skin.exists()
-                && let Err(error) = controller.install_bundled_skin(&bundled_skin, "Pastellplate")
+                && let Err(error) = controller.install_bundled_skin(
+                    &bundled_skin,
+                    "Pastellplate",
+                    &["3d4b15657d4352bef0706b4db9010edc5142fef1486069ef2cab0ebef57cce22"],
+                )
             {
                 log::warn!("Could not install bundled Pastellplate skin: {error:#}");
             }

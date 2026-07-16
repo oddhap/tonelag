@@ -138,7 +138,9 @@ def main_bitmap() -> Canvas:
 
 
 def eq_bitmap() -> Canvas:
-    canvas = shell(BLUE)
+    base = shell(BLUE)
+    canvas = Canvas(WIDTH, 315, PLUM)
+    canvas.pixels[:HEIGHT] = [list(row) for row in base.pixels]
     canvas.rect(7, 20, 261, 89, CREAM_DARK)
     canvas.rect(10, 23, 255, 83, CREAM)
     canvas.frame(14, 27, 35, 72, LAVENDER_DARK, (238, 226, 255))
@@ -151,11 +153,33 @@ def eq_bitmap() -> Canvas:
     for y in (34, 62, 90):
         canvas.rect(18, y, 27, 2, PLUM_SOFT)
     canvas.rect(25, 53, 12, 8, PEACH)
+    # Standard EQMAIN sprite area used by Winamp 2.x compatible clients.
+    for y, color in ((116, BLUE), (125, LAVENDER)):
+        canvas.rect(0, y, 9, 9, color)
+        canvas.line(2, y + 2, 6, y + 6, PLUM)
+        canvas.line(6, y + 2, 2, y + 6, PLUM)
+    for x, color in ((10, BLUE), (69, LAVENDER), (128, PEACH), (187, PINK)):
+        canvas.rect(x, 119, 26, 12, color)
+        canvas.rect(x + 2, 121, 22, 2, WHITE)
+    canvas.rect(0, 164, 11, 11, LAVENDER)
+    canvas.rect(2, 166, 7, 2, WHITE)
+    canvas.rect(0, 176, 11, 11, LAVENDER_DARK)
+    canvas.rect(224, 164, 44, 12, PINK)
+    canvas.rect(226, 166, 40, 2, WHITE)
+    canvas.rect(224, 176, 44, 12, PEACH)
+    canvas.rect(0, 294, 113, 19, (46, 38, 67))
+    for x in range(4, 110, 10):
+        canvas.rect(x, 302 - (x % 4), 2, 6 + (x % 5), BLUE if x % 20 else PINK)
+    canvas.rect(115, 294, 1, 19, LAVENDER)
+    canvas.rect(0, 314, 113, 1, PEACH)
     return canvas
 
 
 def playlist_bitmap() -> Canvas:
-    canvas = shell(PINK)
+    base = shell(PINK)
+    canvas = Canvas(280, 186, PLUM)
+    for y, row in enumerate(base.pixels):
+        canvas.pixels[y][:WIDTH] = list(row)
     canvas.frame(7, 20, 261, 88, PLUM_SOFT, WHITE)
     canvas.rect(10, 23, 255, 62, (255, 250, 238))
     for y in range(25, 84, 10):
@@ -164,6 +188,53 @@ def playlist_bitmap() -> Canvas:
     for x, color in ((15, LAVENDER), (66, BLUE), (117, PINK), (168, PEACH), (219, LAVENDER)):
         canvas.rect(x, 92, 42, 9, color)
         canvas.rect(x + 1, 93, 40, 2, WHITE)
+    # Menu sprites at the canonical PLEDIT coordinates.
+    for x, color in ((0, BLUE), (23, LAVENDER), (54, PINK), (77, PEACH), (104, LAVENDER),
+                     (127, BLUE), (154, PEACH), (177, PINK), (204, LAVENDER), (227, BLUE)):
+        for y in (111, 130, 149):
+            canvas.rect(x, y, 22, 18, PLUM)
+            canvas.rect(x + 1, y + 1, 20, 16, color)
+            canvas.rect(x + 3, y + 4, 16, 2, WHITE)
+    return canvas
+
+
+def titlebar_bitmap() -> Canvas:
+    canvas = Canvas(320, 87, PLUM)
+    for y, accent in ((0, LAVENDER), (15, BLUE)):
+        canvas.rect(27, y, 275, 14, accent)
+        canvas.rect(29, y + 2, 271, 2, WHITE)
+        for x in range(37, 285, 8):
+            canvas.rect(x, y + 7, 5, 2, CREAM)
+    for x, color in ((0, BLUE), (9, LAVENDER), (18, PINK)):
+        canvas.rect(x, 0, 9, 9, color)
+        canvas.rect(x, 9, 9, 9, tuple(max(0, channel - 25) for channel in color))
+    canvas.line(20, 2, 24, 6, PLUM)
+    canvas.line(24, 2, 20, 6, PLUM)
+    return canvas
+
+
+def shufrep_bitmap() -> Canvas:
+    canvas = Canvas(92, 85, PLUM)
+    for y, shade in ((0, 0), (15, 20), (30, -12), (45, 8)):
+        repeat = tuple(max(0, min(255, channel + shade)) for channel in BLUE)
+        shuffle = tuple(max(0, min(255, channel + shade)) for channel in PINK)
+        canvas.rect(0, y, 28, 15, repeat)
+        canvas.rect(28, y, 47, 15, shuffle)
+        canvas.rect(2, y + 2, 24, 2, WHITE)
+        canvas.rect(30, y + 2, 43, 2, WHITE)
+    for x, color in ((0, LAVENDER), (23, PEACH), (46, BLUE), (69, PINK)):
+        canvas.rect(x, 61, 23, 12, color)
+        canvas.rect(x, 73, 23, 12, tuple(max(0, channel - 20) for channel in color))
+    return canvas
+
+
+def posbar_bitmap() -> Canvas:
+    canvas = Canvas(307, 10, CREAM_DARK)
+    canvas.rect(0, 3, 248, 4, PLUM_SOFT)
+    canvas.rect(1, 4, 246, 1, WHITE)
+    canvas.rect(248, 0, 29, 10, LAVENDER)
+    canvas.rect(250, 2, 25, 2, WHITE)
+    canvas.rect(278, 0, 29, 10, LAVENDER_DARK)
     return canvas
 
 
@@ -217,6 +288,9 @@ def make_skin(output: Path, preview: Path) -> None:
         "EQMAIN.BMP": equalizer.bmp(),
         "PLEDIT.BMP": playlist.bmp(),
         "CBUTTONS.BMP": controls_bitmap().bmp(),
+        "TITLEBAR.BMP": titlebar_bitmap().bmp(),
+        "SHUFREP.BMP": shufrep_bitmap().bmp(),
+        "POSBAR.BMP": posbar_bitmap().bmp(),
         "TEXT.BMP": glyph_bitmap(LAVENDER).bmp(),
         "NUMBERS.BMP": glyph_bitmap(PEACH).bmp(),
         "PLEDIT.TXT": (
@@ -245,8 +319,8 @@ def make_skin(output: Path, preview: Path) -> None:
 
     stacked = Canvas(WIDTH, HEIGHT * 3)
     for offset, source in enumerate((main, equalizer, playlist)):
-        for y, row in enumerate(source.pixels):
-            stacked.pixels[offset * HEIGHT + y] = list(row)
+        for y, row in enumerate(source.pixels[:HEIGHT]):
+            stacked.pixels[offset * HEIGHT + y] = list(row[:WIDTH])
     preview.parent.mkdir(parents=True, exist_ok=True)
     preview.write_bytes(stacked.png())
 

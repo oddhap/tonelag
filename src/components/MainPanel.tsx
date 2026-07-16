@@ -79,12 +79,12 @@ export function MainPanel({ snapshot }: MainPanelProps) {
 
       <div className="main-controls">
         <div className="transport">
-          <button className="sprite-button prev" aria-label={t("previous")} onClick={() => void player({ type: "previous" })}>◀◀</button>
-          <button className="sprite-button play" aria-label={t("play")} onClick={() => void player({ type: "play" })}>▶</button>
-          <button className="sprite-button pause" aria-label={t("pause")} onClick={() => void player({ type: "pause" })}>Ⅱ</button>
-          <button className="sprite-button stop" aria-label={t("stop")} onClick={() => void player({ type: "stop" })}>■</button>
-          <button className="sprite-button next" aria-label={t("next")} onClick={() => void player({ type: "next" })}>▶▶</button>
-          <button className="sprite-button eject" aria-label={t("openFiles")} onClick={() => void addChosenFiles()}>▲</button>
+          <button className="sprite-button prev" aria-label={t("previous")} onClick={() => void player({ type: "previous" })} />
+          <button className="sprite-button play" aria-label={t("play")} onClick={() => void player({ type: "play" })} />
+          <button className="sprite-button pause" aria-label={t("pause")} onClick={() => void player({ type: "pause" })} />
+          <button className="sprite-button stop" aria-label={t("stop")} onClick={() => void player({ type: "stop" })} />
+          <button className="sprite-button next" aria-label={t("next")} onClick={() => void player({ type: "next" })} />
+          <button className="sprite-button eject" aria-label={t("openFiles")} onClick={() => void addChosenFiles()} />
         </div>
         <label className="compact-slider volume-slider" title={t("volume")}>
           <span>VOL</span>
@@ -97,10 +97,10 @@ export function MainPanel({ snapshot }: MainPanelProps) {
       </div>
 
       <div className="main-toggles">
-        <button aria-pressed={settings.shuffle} className={settings.shuffle ? "active" : ""} onClick={() => void player({ type: "toggleShuffle" })}>{t("shuffle")}</button>
-        <button aria-pressed={settings.repeat} className={settings.repeat ? "active" : ""} onClick={() => void player({ type: "toggleRepeat" })}>{t("repeat")}</button>
-        <button onClick={() => showPanel("equalizer")}>{t("eq")}</button>
-        <button onClick={() => showPanel("playlist")}>PL</button>
+        <button aria-label={t("shuffle")} aria-pressed={settings.shuffle} className={`shuffle-button ${settings.shuffle ? "active" : ""}`} onClick={() => void player({ type: "toggleShuffle" })}>{t("shuffle")}</button>
+        <button aria-label={t("repeat")} aria-pressed={settings.repeat} className={`repeat-button ${settings.repeat ? "active" : ""}`} onClick={() => void player({ type: "toggleRepeat" })}>{t("repeat")}</button>
+        <button aria-label={t("equalizer")} className="main-eq-button" onClick={() => showPanel("equalizer")}>{t("eq")}</button>
+        <button aria-label={t("playlist")} className="main-playlist-button" onClick={() => showPanel("playlist")}>PL</button>
       </div>
       {playback.error && <div className="inline-error" title={playback.error}>! {playback.error}</div>}
     </PanelChrome>
