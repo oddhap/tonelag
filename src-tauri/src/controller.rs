@@ -305,6 +305,8 @@ impl AppController {
     }
 
     pub fn player_command(&self, command: PlayerCommand, app: &AppHandle) -> Result<AppSnapshot> {
+        let update_playlist = player_command_updates_playlist(&command);
+        let update_playback = player_command_updates_playback(&command);
         match command {
             PlayerCommand::Play => {
                 let item = {
@@ -408,7 +410,7 @@ impl AppController {
         }
 
         let snapshot = self.mutate_persistent(|_| {})?;
-        emit_snapshot(app, &snapshot);
+        emit_snapshot_for(app, &snapshot, update_playlist, update_playback);
         self.update_system_media(&snapshot);
         Ok(snapshot)
     }
@@ -479,7 +481,7 @@ impl AppController {
             let queue = queue_changed.then(|| state.queue.clone());
             (state.playback.clone(), queue)
         };
-        let _ = app.emit("player://snapshot", &playback);
+        let _ = app.emit_to("main", "player://snapshot", &playback);
         if let Some(queue) = queue {
             let _ = app.emit_to("playlist", "queue://snapshot", &queue);
             if self
@@ -954,6 +956,15 @@ fn current_item(state: &AppSnapshot) -> Option<&QueueItem> {
 }
 
 fn emit_snapshot(app: &AppHandle, snapshot: &AppSnapshot) {
+    emit_snapshot_for(app, snapshot, true, true);
+}
+
+fn emit_snapshot_for(
+    app: &AppHandle,
+    snapshot: &AppSnapshot,
+    update_playlist: bool,
+    update_playback: bool,
+) {
     let lightweight = AppSnapshot {
         revision: snapshot.revision,
         queue: snapshot
@@ -974,9 +985,38 @@ fn emit_snapshot(app: &AppHandle, snapshot: &AppSnapshot) {
         let _ = app.emit_to("main", "app://snapshot", snapshot);
     } else {
         let _ = app.emit_to("main", "app://snapshot", &lightweight);
-        let _ = app.emit_to("playlist", "app://snapshot", snapshot);
+        if update_playlist {
+            let _ = app.emit_to("playlist", "app://snapshot", snapshot);
+        }
     }
-    let _ = app.emit("player://snapshot", &snapshot.playback);
+    if update_playback {
+        let _ = app.emit_to("main", "player://snapshot", &snapshot.playback);
+    }
+}
+
+fn player_command_updates_playlist(command: &PlayerCommand) -> bool {
+    matches!(
+        command,
+        PlayerCommand::Play
+            | PlayerCommand::Next
+            | PlayerCommand::Previous
+            | PlayerCommand::Load { .. }
+            | PlayerCommand::ToggleDoubleSize
+            | PlayerCommand::SetLanguage { .. }
+    )
+}
+
+fn player_command_updates_playback(command: &PlayerCommand) -> bool {
+    matches!(
+        command,
+        PlayerCommand::Play
+            | PlayerCommand::Pause
+            | PlayerCommand::Stop
+            | PlayerCommand::Next
+            | PlayerCommand::Previous
+            | PlayerCommand::Load { .. }
+            | PlayerCommand::Seek { .. }
+    )
 }
 
 fn is_playlist(path: &Path) -> bool {
@@ -1221,5 +1261,29 @@ mod window_tests {
             panel_window_dimensions("skins", &snapshot),
             (620.0, 520.0, 380.0)
         );
+    }
+
+    #[test]
+    fn equalizer_commands_do_not_refresh_the_playlist_window() {
+        assert!(!player_command_updates_playlist(
+            &PlayerCommand::SetEqBand {
+                index: 3,
+                value_db: 4.0,
+            }
+        ));
+        assert!(!player_command_updates_playlist(
+            &PlayerCommand::SetPreamp { value_db: -2.0 }
+        ));
+        assert!(!player_command_updates_playback(
+            &PlayerCommand::SetPreamp { value_db: -2.0 }
+        ));
+        assert!(player_command_updates_playlist(&PlayerCommand::Play));
+        assert!(player_command_updates_playback(&PlayerCommand::Play));
+        assert!(player_command_updates_playlist(
+            &PlayerCommand::ToggleDoubleSize
+        ));
+        assert!(!player_command_updates_playback(
+            &PlayerCommand::ToggleDoubleSize
+        ));
     }
 }

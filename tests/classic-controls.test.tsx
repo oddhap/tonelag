@@ -50,4 +50,11 @@ describe("classic skin controls", () => {
     expect(rule?.style.getPropertyValue("transform")).toBe("");
     expect(rule?.style.getPropertyValue("zoom")).toBe("");
   });
+
+  it("preserves absolute control coordinates when an imported skin is active", () => {
+    const { container } = render(<div className="has-imported-skin"><MainPanel snapshot={defaultSnapshot} /></div>);
+
+    expect(getComputedStyle(container.querySelector(".main-readout")!).position).toBe("absolute");
+    expect(getComputedStyle(container.querySelector(".panel-controls")!).position).toBe("absolute");
+  });
 });

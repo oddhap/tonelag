@@ -56,7 +56,6 @@ button { color: inherit; }
 .winshade .main-panel > :not(.panel-titlebar) { display: none; }
 
 .main-panel { height: 116px; background-image: var(--skin-main), linear-gradient(135deg, #626e70 0, #343d3f 42%, #222b2e 100%); background-position: 0 0; clip-path: var(--skin-main-clip, none); cursor: var(--skin-cursor, default); }
-.has-imported-skin .main-panel > :not(.panel-titlebar) { position: relative; }
 .main-readout { position: absolute; left: 16px; top: 23px; width: 243px; height: 45px; background: color-mix(in srgb, var(--display-bg) 92%, transparent); border: 1px inset #62706c; }
 .time-display { position: absolute; left: 22px; top: 1px; width: 53px; height: 25px; padding: 0; border: 0; background: transparent; font-family: Impact, fantasy; font-size: 23px; line-height: 24px; letter-spacing: 1px; color: var(--time-text, var(--display-text)); text-shadow: 0 0 4px color-mix(in srgb, var(--time-text, var(--display-text)) 65%, transparent); }
 .visualization-toggle { position: absolute; left: 7px; bottom: 4px; width: 74px; height: 17px; padding: 0; border: 0; background: transparent; }
