@@ -13,6 +13,7 @@ export function EqualizerPanel({ snapshot }: { snapshot: AppSnapshot }) {
     <PanelChrome
       className="equalizer-panel"
       title={t("equalizer")}
+      expandedDragArea
       controls={<button className="micro-button" aria-label={t("close")} onClick={() => void setPanelVisible("equalizer", false)}>×</button>}
     >
       <div className="eq-toolbar">

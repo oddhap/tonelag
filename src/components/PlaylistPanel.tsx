@@ -76,6 +76,7 @@ export function PlaylistPanel({ snapshot }: { snapshot: AppSnapshot }) {
     <PanelChrome
       className="playlist-panel"
       title={`${t("playlist")} · ${snapshot.queue.length}`}
+      expandedDragArea
       controls={<button className="micro-button" aria-label={t("close")} onClick={() => void setPanelVisible("playlist", false)}>×</button>}
     >
       <div

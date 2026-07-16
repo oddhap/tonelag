@@ -49,6 +49,7 @@ export function MainPanel({ snapshot }: MainPanelProps) {
     <PanelChrome
       className="main-panel"
       title={t("appName")}
+      expandedDragArea
       controls={
         <span className="main-title-controls">
           <button

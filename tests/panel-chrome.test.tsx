@@ -23,7 +23,7 @@ describe("PanelChrome", () => {
   it("lets title-bar controls receive mouse clicks", () => {
     const clicked = vi.fn();
     render(
-      <PanelChrome title="Tonelag" controls={<button onClick={clicked}>Options</button>}>
+      <PanelChrome title="Tonelag" controls={<button onClick={clicked}>Options</button>} expandedDragArea>
         content
       </PanelChrome>,
     );
@@ -33,5 +33,17 @@ describe("PanelChrome", () => {
 
     expect(startWindowDragging).not.toHaveBeenCalled();
     expect(clicked).toHaveBeenCalledOnce();
+  });
+
+  it("starts dragging from unused space in a full-width title control layer", () => {
+    const { container } = render(
+      <PanelChrome className="main-panel" title="Tonelag" controls={<button>Options</button>} expandedDragArea>
+        content
+      </PanelChrome>,
+    );
+
+    fireEvent.mouseDown(container.querySelector(".panel-controls")!, { button: 0 });
+
+    expect(startWindowDragging).toHaveBeenCalledOnce();
   });
 });
