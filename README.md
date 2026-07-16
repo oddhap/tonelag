@@ -22,6 +22,8 @@ named **Model 275**, after the classic interface width of 275 pixels.
 - Secure `.wsz` import with flat or one-level nested roots, case-insensitive
   assets, fallback artwork, cursors, playlist/visualization colors, and region
   clipping/hit-testing.
+- Built-in browsing, searching, previewing, and checksum-verified installation
+  from the Webamp Skin Museum, with adult-marked entries excluded.
 - Classic EQF import/export, winshade, 2× nearest-neighbor scaling, frameless
   panel snapping/group movement, and a combined Wayland layout.
 - Windows SMTC, macOS Now Playing/Remote Command Center, and Linux MPRIS through
@@ -80,10 +82,22 @@ The release compliance and dynamic-linking rules are documented in
 
 ## Skins
 
-Import `.wsz` or `.zip` from the **S** button. Missing individual resources fall
-back to the original project artwork. The generated fixture at
+The **S** button opens the skin browser. It browses the public
+[Webamp Skin Museum](https://skins.webamp.org/) catalog and only downloads a
+skin after **Install** is selected. Catalog responses are size-limited, preview
+URLs are restricted to the museum's image host, downloads are checked against
+their catalog MD5, and the normal archive safety checks still apply. No catalog
+request is made while the browser window is closed.
+
+Use **Import local skin** in that window to import a `.wsz` or `.zip` from disk.
+Missing individual resources fall back to the original project artwork. The
+generated fixture at
 [`assets/default-skin/model-275.wsz`](assets/default-skin/model-275.wsz)
 is MIT/Apache-2.0 and may be redistributed.
+
+Museum skins are third-party works and are installed into the user's app-data
+directory; they are not committed to this repository or bundled in releases.
+Users must check the respective author's terms before redistributing one.
 
 Local files `TEAGUEK_2.wsz` and `RET_02.wsz` can be tested without copying them
 into the repository:

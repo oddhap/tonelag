@@ -12,7 +12,7 @@
   "app": {
     "macOSPrivateApi": true,
     "security": {
-      "csp": "default-src 'self' asset: http://asset.localhost; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost https: http:"
+      "csp": "default-src 'self' asset: http://asset.localhost; img-src 'self' asset: http://asset.localhost data: blob: https://r2.webampskins.org; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost https: http:"
     },
     "windows": [
       {
@@ -58,6 +58,21 @@
         "shadow": false,
         "visible": false,
         "skipTaskbar": true
+      },
+      {
+        "label": "skins",
+        "title": "Tonelag Skin Browser",
+        "url": "index.html?panel=skins",
+        "width": 760,
+        "height": 620,
+        "minWidth": 520,
+        "minHeight": 420,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "visible": false,
+        "skipTaskbar": true,
+        "center": true
       }
     ]
   },

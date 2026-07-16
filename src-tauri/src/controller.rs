@@ -11,7 +11,7 @@ use crate::{
     audio::{AudioCommand, AudioController, AudioEvent},
     eqf,
     model::{AppSnapshot, PlaybackStatus, PlayerCommand, QueueItem, QueueOrigin},
-    persistence, playlist, skin,
+    persistence, playlist, skin, skin_catalog,
 };
 
 pub struct AppController {
@@ -169,6 +169,25 @@ impl AppController {
 
     pub fn import_skin(&self, path: &Path, app: &AppHandle) -> Result<skin::SkinDescriptor> {
         let descriptor = skin::import(path, &self.skins_dir())?;
+        self.select_skin(descriptor, app)
+    }
+
+    pub async fn install_catalog_skin(
+        &self,
+        md5: &str,
+        name: &str,
+        app: &AppHandle,
+    ) -> Result<skin::SkinDescriptor> {
+        let bytes = skin_catalog::download(md5).await?;
+        let descriptor = skin::install_bytes(name, &bytes, &self.skins_dir())?;
+        self.select_skin(descriptor, app)
+    }
+
+    fn select_skin(
+        &self,
+        descriptor: skin::SkinDescriptor,
+        app: &AppHandle,
+    ) -> Result<skin::SkinDescriptor> {
         let snapshot = self.mutate_persistent(|state| {
             state.settings.selected_skin = Some(descriptor.id.clone());
         })?;
@@ -458,8 +477,21 @@ impl AppController {
     }
 
     pub fn set_panel_visible(&self, app: &AppHandle, panel: &str, visible: bool) -> Result<()> {
-        if !matches!(panel, "equalizer" | "playlist") {
+        if !matches!(panel, "equalizer" | "playlist" | "skins") {
             return Err(anyhow!("unknown panel"));
+        }
+        if panel == "skins" {
+            let window = app
+                .get_webview_window(panel)
+                .context("skin browser window does not exist")?;
+            if visible {
+                window.show()?;
+                window.set_focus()?;
+                let _ = app.emit_to("skins", "skin-browser://opened", ());
+            } else {
+                window.hide()?;
+            }
+            return Ok(());
         }
         if self.snapshot().layout.combined {
             return Ok(());

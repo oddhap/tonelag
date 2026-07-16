@@ -4,7 +4,7 @@ import type { AppSnapshot } from "../bindings/contracts";
 import { addChosenFiles, addStreamUrl, player, reportError } from "../lib/actions";
 import { setPanelVisible } from "../lib/backend";
 import { displayTitle, formatTime } from "../lib/format";
-import { chooseAndImportSkin, useClassicSkin } from "../lib/skin-store";
+import { useClassicSkin } from "../lib/skin-store";
 import { PanelChrome } from "./PanelChrome";
 import { Spectrum } from "./Spectrum";
 
@@ -35,7 +35,7 @@ export function MainPanel({ snapshot }: MainPanelProps) {
     if (value?.trim()) void addStreamUrl(value.trim());
   };
 
-  const showPanel = (panel: "equalizer" | "playlist") => {
+  const showPanel = (panel: "equalizer" | "playlist" | "skins") => {
     void setPanelVisible(panel, true).catch(reportError);
   };
 
@@ -45,7 +45,7 @@ export function MainPanel({ snapshot }: MainPanelProps) {
       title={t("appName")}
       controls={
         <>
-          <button className="micro-button" onClick={() => void chooseAndImportSkin().catch(reportError)} title={t("importSkin")}>S</button>
+          <button className="micro-button" onClick={() => showPanel("skins")} title={t("browseSkins")}>S</button>
           <button className="micro-button" onClick={() => void addChosenFiles()} title={t("openFiles")}>O</button>
           <button className="micro-button" onClick={promptForUrl} title={t("openUrl")}>U</button>
           <button className="micro-button" onClick={() => void player({ type: "setLanguage", language: settings.language === "en" ? "nb" : "en" })} title={t("language")}>{settings.language === "en" ? "N" : "E"}</button>

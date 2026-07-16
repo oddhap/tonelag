@@ -3,17 +3,18 @@ import i18n from "./i18n";
 import { MainPanel } from "./components/MainPanel";
 import { EqualizerPanel } from "./components/EqualizerPanel";
 import { PlaylistPanel } from "./components/PlaylistPanel";
+import { SkinBrowserPanel } from "./components/SkinBrowserPanel";
 import { addPaths, isTauri, onDroppedPaths } from "./lib/backend";
 import { reportError } from "./lib/actions";
 import { loadSkinById, useClassicSkin } from "./lib/skin-store";
 import { skinCssVariables } from "./lib/skin";
 import { acceptSnapshot, useAppSnapshot } from "./lib/store";
 
-type Panel = "main" | "equalizer" | "playlist" | "combined";
+type Panel = "main" | "equalizer" | "playlist" | "combined" | "skins";
 
 function requestedPanel(): Panel {
   const panel = new URLSearchParams(window.location.search).get("panel");
-  return panel === "equalizer" || panel === "playlist" || panel === "combined" ? panel : "main";
+  return panel === "equalizer" || panel === "playlist" || panel === "combined" || panel === "skins" ? panel : "main";
 }
 
 export default function App() {
@@ -55,10 +56,11 @@ export default function App() {
   }, []);
 
   return (
-    <main className={`app-shell panel-${panel} ${skin ? "has-imported-skin" : ""} ${snapshot.settings.doubleSize ? "double-size" : ""} ${snapshot.settings.mainWinshade ? "winshade" : ""}`} style={skinCssVariables(skin)}>
+    <main className={`app-shell panel-${panel} ${panel !== "skins" && skin ? "has-imported-skin" : ""} ${panel !== "skins" && snapshot.settings.doubleSize ? "double-size" : ""} ${panel !== "skins" && snapshot.settings.mainWinshade ? "winshade" : ""}`} style={panel === "skins" ? undefined : skinCssVariables(skin)}>
       {(panel === "main" || panel === "combined") && <MainPanel snapshot={snapshot} />}
       {(panel === "equalizer" || panel === "combined") && <EqualizerPanel snapshot={snapshot} />}
       {(panel === "playlist" || panel === "combined") && <PlaylistPanel snapshot={snapshot} />}
+      {panel === "skins" && <SkinBrowserPanel />}
       {error && <aside className="error-toast" role="alert">{error}</aside>}
     </main>
   );

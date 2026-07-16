@@ -20,5 +20,10 @@ particular:
 - Webamp is MIT-licensed and was used only as a behavioral and file-format
   reference. No Webamp source file is currently copied into this repository.
 
+Tonelag can access the independently hosted Webamp Skin Museum at the user's
+request. No catalog previews or downloadable skins are bundled with Tonelag.
+Those skins are third-party works whose copyright and redistribution terms may
+vary; the Webamp MIT license does not automatically apply to them.
+
 The Winamp name and trademarks belong to their respective owners. Compatibility
 with Winamp Classic skin files does not imply endorsement or affiliation.

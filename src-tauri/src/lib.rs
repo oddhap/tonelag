@@ -7,6 +7,7 @@ mod persistence;
 mod playlist;
 mod privacy;
 mod skin;
+mod skin_catalog;
 mod stream;
 mod system_media;
 
@@ -15,6 +16,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use controller::AppController;
 use model::{AppSnapshot, PlayerCommand};
 use skin::SkinDescriptor;
+use skin_catalog::SkinCatalogPage;
 use stream::ResolvedStream;
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
@@ -125,6 +127,30 @@ fn skin_bytes(id: String, controller: State<'_, Arc<AppController>>) -> CommandR
 }
 
 #[tauri::command]
+async fn skin_catalog_browse(
+    query: Option<String>,
+    offset: u32,
+    limit: u32,
+) -> CommandResult<SkinCatalogPage> {
+    skin_catalog::browse(query, offset, limit)
+        .await
+        .map_err(format_error)
+}
+
+#[tauri::command]
+async fn skin_catalog_install(
+    md5: String,
+    name: String,
+    controller: State<'_, Arc<AppController>>,
+    app: AppHandle,
+) -> CommandResult<SkinDescriptor> {
+    controller
+        .install_catalog_skin(&md5, &name, &app)
+        .await
+        .map_err(format_error)
+}
+
+#[tauri::command]
 async fn resolve_stream(url: String) -> CommandResult<ResolvedStream> {
     stream::resolve(&url).await.map_err(format_error)
 }
@@ -171,6 +197,10 @@ pub fn run() {
                 return;
             };
             match event {
+                tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "skins" => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
                 tauri::WindowEvent::Moved(position) => {
                     let scale = window.scale_factor().unwrap_or(1.0);
                     controller.handle_window_moved(
@@ -274,6 +304,8 @@ pub fn run() {
             eqf_export,
             skin_import,
             skin_bytes,
+            skin_catalog_browse,
+            skin_catalog_install,
             resolve_stream,
             set_panel_visible,
         ])

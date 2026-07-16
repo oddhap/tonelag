@@ -6,6 +6,7 @@ import type {
   AppSnapshot,
   PlayerCommand,
   ResolvedStream,
+  SkinCatalogPage,
   SkinDescriptor,
   Uuid,
 } from "../bindings/contracts";
@@ -27,8 +28,12 @@ export const importEqf = (path: string) => invoke<AppSnapshot>("eqf_import", { p
 export const exportEqf = (path: string) => invoke<void>("eqf_export", { path });
 export const importSkin = (path: string) => invoke<SkinDescriptor>("skin_import", { path });
 export const getSkinBytes = (id: string) => invoke<number[]>("skin_bytes", { id });
+export const browseSkinCatalog = (query: string | null, offset: number, limit: number) =>
+  invoke<SkinCatalogPage>("skin_catalog_browse", { query, offset, limit });
+export const installCatalogSkin = (md5: string, name: string) =>
+  invoke<SkinDescriptor>("skin_catalog_install", { md5, name });
 export const resolveStream = (url: string) => invoke<ResolvedStream>("resolve_stream", { url });
-export const setPanelVisible = (panel: "equalizer" | "playlist", visible: boolean) =>
+export const setPanelVisible = (panel: "equalizer" | "playlist" | "skins", visible: boolean) =>
   invoke<void>("set_panel_visible", { panel, visible });
 
 export async function chooseAudioFiles(): Promise<string[]> {
@@ -77,6 +82,8 @@ export const chooseEqfDestination = () =>
 
 export const onSnapshot = (callback: (snapshot: AppSnapshot) => void) =>
   listen<AppSnapshot>("app://snapshot", ({ payload }) => callback(payload));
+export const onSkinBrowserOpened = (callback: () => void) =>
+  listen<void>("skin-browser://opened", callback);
 
 export async function onDroppedPaths(callback: (paths: string[]) => void) {
   return getCurrentWebviewWindow().onDragDropEvent((event) => {

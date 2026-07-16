@@ -26,6 +26,7 @@ cpal = "0.18.1"
 ffmpeg-next = { version = "8.1.0", default-features = false, features = ["codec", "format", "software-resampling"] }
 futures-util = "0.3.32"
 log = "0.4.29"
+md-5 = "0.11.0"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json", "stream", "blocking"] }
 rtrb = "0.3.4"
 rustfft = "6.4.1"

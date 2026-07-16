@@ -1,4 +1,9 @@
-use std::{fs, fs::File, io::Read, path::Path};
+use std::{
+    fs,
+    fs::OpenOptions,
+    io::{Cursor, Write},
+    path::Path,
+};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -27,21 +32,61 @@ pub fn import(source: &Path, skins_dir: &Path) -> Result<SkinDescriptor> {
         bail!("skin exceeds the 25 MiB compressed size limit");
     }
 
-    let (id, files) = inspect(source)?;
+    let bytes = fs::read(source)
+        .with_context(|| format!("failed reading skin archive: {}", source.display()))?;
+    install_bytes(
+        source
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("Imported skin"),
+        &bytes,
+        skins_dir,
+    )
+}
+
+pub fn install_bytes(name: &str, bytes: &[u8], skins_dir: &Path) -> Result<SkinDescriptor> {
+    if bytes.len() as u64 > MAX_COMPRESSED_BYTES {
+        bail!("skin exceeds the 25 MiB compressed size limit");
+    }
+
+    let (id, files) = inspect(bytes)?;
     fs::create_dir_all(skins_dir)?;
     let target = skins_dir.join(format!("{id}.wsz"));
     if !target.exists() {
-        fs::copy(source, &target)
-            .with_context(|| format!("failed copying skin to {}", target.display()))?;
+        let temporary = skins_dir.join(format!(".skin-{}.tmp", uuid::Uuid::new_v4()));
+        let result = (|| -> Result<()> {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)
+                .context("failed creating temporary skin archive")?;
+            file.write_all(bytes)
+                .context("failed writing temporary skin archive")?;
+            file.sync_all()
+                .context("failed syncing temporary skin archive")?;
+            fs::rename(&temporary, &target)
+                .with_context(|| format!("failed installing skin to {}", target.display()))?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        result?;
     }
 
+    let name = name
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(120)
+        .collect::<String>();
+    let name = name.trim();
     Ok(SkinDescriptor {
         id,
-        name: source
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or("Imported skin")
-            .to_owned(),
+        name: if name.is_empty() {
+            "Imported skin".to_owned()
+        } else {
+            name.to_owned()
+        },
         files,
     })
 }
@@ -65,21 +110,13 @@ fn validate_extension(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn inspect(path: &Path) -> Result<(String, Vec<String>)> {
-    let mut hash_file = File::open(path)?;
+fn inspect(bytes: &[u8]) -> Result<(String, Vec<String>)> {
     let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let count = hash_file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(&buffer[..count]);
-    }
+    hasher.update(bytes);
     let id = format!("{:x}", hasher.finalize());
 
-    let file = File::open(path)?;
-    let mut archive = ZipArchive::new(file).context("skin is not a valid ZIP archive")?;
+    let mut archive =
+        ZipArchive::new(Cursor::new(bytes)).context("skin is not a valid ZIP archive")?;
     if archive.len() > MAX_FILES {
         bail!("skin contains more than 1000 files");
     }
@@ -120,7 +157,7 @@ fn leaf(path: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::{fs::File, io::Write};
 
     use super::*;
     use zip::{ZipWriter, write::SimpleFileOptions};
@@ -153,6 +190,27 @@ mod tests {
         let source = dir.path().join("test.wsz");
         create_skin(&source, &["PLEDIT.BMP"]);
         assert!(import(&source, dir.path()).is_err());
+    }
+
+    #[test]
+    fn installs_downloaded_bytes_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("download.wsz");
+        create_skin(&source, &["MAIN.BMP", "EQMAIN.BMP"]);
+        let bytes = fs::read(source).unwrap();
+
+        let descriptor = install_bytes("Downloaded skin", &bytes, dir.path()).unwrap();
+
+        assert_eq!(descriptor.name, "Downloaded skin");
+        assert_eq!(read_bytes(dir.path(), &descriptor.id).unwrap(), bytes);
+        assert_eq!(
+            fs::read_dir(dir.path())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.path().extension().is_some_and(|value| value == "tmp"))
+                .count(),
+            0
+        );
     }
 
     #[test]
