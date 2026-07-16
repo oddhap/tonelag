@@ -4,7 +4,7 @@ import { MainPanel } from "./components/MainPanel";
 import { EqualizerPanel } from "./components/EqualizerPanel";
 import { PlaylistPanel } from "./components/PlaylistPanel";
 import { SkinBrowserPanel } from "./components/SkinBrowserPanel";
-import { addPaths, isTauri, notifyFrontendReady, onDroppedPaths } from "./lib/backend";
+import { addPaths, isTauri, notifyFrontendReady, onDroppedPaths, setInterfaceScale } from "./lib/backend";
 import { reportError } from "./lib/actions";
 import { loadSkinById, useClassicSkin } from "./lib/skin-store";
 import { skinCssClasses, skinCssVariables } from "./lib/skin";
@@ -34,6 +34,12 @@ export default function App() {
   useEffect(() => {
     void loadSkinById(snapshot.settings.selectedSkin).catch(reportError);
   }, [snapshot.settings.selectedSkin]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const scale = panel !== "skins" && snapshot.settings.doubleSize ? 2 : 1;
+    void setInterfaceScale(scale).catch(reportError);
+  }, [panel, snapshot.settings.doubleSize]);
 
   useEffect(() => {
     const handler = (event: Event) => {

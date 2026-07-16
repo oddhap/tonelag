@@ -42,6 +42,8 @@ export const setPanelVisible = (panel: "equalizer" | "playlist" | "skins", visib
   invoke<void>("set_panel_visible", { panel, visible });
 export const notifyFrontendReady = () => invoke<void>("frontend_ready");
 export const quitApp = () => invoke<void>("quit_app");
+export const startWindowDragging = () => getCurrentWebviewWindow().startDragging();
+export const setInterfaceScale = (scale: number) => getCurrentWebviewWindow().setZoom(scale);
 
 export async function chooseAudioFiles(): Promise<string[]> {
   const result = await open({

@@ -1,4 +1,5 @@
-import type { PropsWithChildren, ReactNode } from "react";
+import type { MouseEvent, PropsWithChildren, ReactNode } from "react";
+import { startWindowDragging } from "../lib/backend";
 
 interface PanelChromeProps extends PropsWithChildren {
   className?: string;
@@ -7,12 +8,18 @@ interface PanelChromeProps extends PropsWithChildren {
 }
 
 export function PanelChrome({ className = "", title, controls, children }: PanelChromeProps) {
+  const startDragging = (event: MouseEvent<HTMLElement>) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest("button, input, select, textarea, a, [role='menuitem']")) return;
+    event.preventDefault();
+    void startWindowDragging();
+  };
+
   return (
     <section className={`classic-panel ${className}`} aria-label={title}>
-      <header className="panel-titlebar" data-tauri-drag-region>
-        <span className="panel-title" data-tauri-drag-region>{title}</span>
-        {controls && <span className="panel-controls">{controls}</span>}
+      <header className="panel-titlebar" onMouseDown={startDragging}>
+        <span className="panel-title">{title}</span>
       </header>
+      {controls && <span className="panel-controls">{controls}</span>}
       {children}
     </section>
   );

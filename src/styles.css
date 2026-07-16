@@ -47,11 +47,11 @@ button { color: inherit; }
   border-bottom: 1px solid #101819;
 }
 .panel-titlebar::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 5px; background: var(--accent); box-shadow: inset 1px 1px #bdffc8, 0 0 4px #46dc64; vertical-align: -1px; }
-.panel-controls { position: absolute; right: 3px; top: 1px; display: flex; gap: 2px; }
+.panel-controls { position: absolute; z-index: 10; right: 3px; top: 1px; display: flex; gap: 2px; }
 .micro-button { width: 11px; height: 11px; padding: 0; border: 1px solid #111; background: #4a5557; font-size: 8px; line-height: 9px; }
 .micro-button:active { background: #1c2426; }
 .micro-button.close-button { color: #ffd8dc; }
-.double-size { zoom: 2; width: 275px; image-rendering: pixelated; }
+.double-size { image-rendering: pixelated; }
 .winshade .main-panel { height: 14px; }
 .winshade .main-panel > :not(.panel-titlebar) { display: none; }
 
@@ -123,9 +123,9 @@ button.active, button[aria-pressed="true"] { color: #bfffc9; background: #263c31
 .has-imported-skin :is(.main-panel, .equalizer-panel, .playlist-panel) .panel-titlebar::before { visibility: hidden; }
 .has-imported-skin .main-readout { background: transparent; border-color: transparent; }
 .has-skin-titlebar .main-panel .panel-titlebar { background-image: var(--skin-titlebar); background-position: -27px 0; }
-.main-panel .panel-controls { inset: 0; height: 14px; display: block; pointer-events: none; }
+.main-panel .panel-controls { inset: 0; height: 14px; display: block; }
 .main-title-controls { display: contents; }
-.main-panel .panel-controls .micro-button { position: absolute; top: 3px; width: 9px; height: 9px; line-height: 7px; pointer-events: auto; }
+.main-panel .panel-controls .micro-button { position: absolute; top: 3px; width: 9px; height: 9px; line-height: 7px; }
 .title-options-button { left: 6px; }
 .title-winshade-button { left: 254px; }
 .title-close-button { left: 264px; }

@@ -48,5 +48,6 @@ describe("classic skin controls", () => {
       .find((candidate) => candidate instanceof CSSStyleRule && candidate.selectorText === ".double-size") as CSSStyleRule | undefined;
 
     expect(rule?.style.getPropertyValue("transform")).toBe("");
+    expect(rule?.style.getPropertyValue("zoom")).toBe("");
   });
 });
