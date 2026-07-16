@@ -1,0 +1,104 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Tonelag",
+  "version": "0.1.0",
+  "identifier": "no.oddhap.tonelag",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "security": {
+      "csp": "default-src 'self' asset: http://asset.localhost; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost https: http:"
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "Tonelag",
+        "url": "index.html?panel=main",
+        "width": 275,
+        "height": 116,
+        "minWidth": 275,
+        "minHeight": 116,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "center": true
+      },
+      {
+        "label": "equalizer",
+        "title": "Tonelag Equalizer",
+        "url": "index.html?panel=equalizer",
+        "width": 275,
+        "height": 116,
+        "minWidth": 275,
+        "minHeight": 116,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "visible": false,
+        "skipTaskbar": true
+      },
+      {
+        "label": "playlist",
+        "title": "Tonelag Playlist",
+        "url": "index.html?panel=playlist",
+        "width": 275,
+        "height": 232,
+        "minWidth": 275,
+        "minHeight": 116,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "visible": false,
+        "skipTaskbar": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Music",
+    "shortDescription": "Classic skin-compatible audio player",
+    "longDescription": "An open-source desktop audio player compatible with Winamp Classic skin files.",
+    "copyright": "Copyright 2026 Tonelag contributors",
+    "resources": {
+      "../assets/default-skin/model-275.wsz": "default-skin/model-275.wsz",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+    },
+    "fileAssociations": [
+      {
+        "ext": ["mp2", "mp3", "aac", "m4a", "flac", "alac", "wma", "ape", "wv", "mpc", "ogg", "opus", "wav", "aiff", "mod", "xm", "s3m", "it", "m3u", "m3u8", "pls"],
+        "name": "Audio and playlist files",
+        "description": "Audio and playlist files",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["wsz"],
+        "name": "Classic player skin",
+        "description": "Winamp Classic compatible skin archive",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["eqf"],
+        "name": "Equalizer preset",
+        "description": "Winamp compatible equalizer preset",
+        "role": "Viewer"
+      }
+    ],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

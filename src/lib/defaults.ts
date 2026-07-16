@@ -1,0 +1,48 @@
+import type { AppSnapshot } from "../bindings/contracts";
+
+export const defaultSnapshot: AppSnapshot = {
+  revision: 0,
+  queue: [],
+  playback: {
+    revision: 0,
+    status: "stopped",
+    currentItemId: null,
+    positionMs: 0,
+    durationMs: null,
+    bitrateKbps: null,
+    sampleRateHz: null,
+    channels: null,
+    bufferedPercent: null,
+    nowPlayingTitle: null,
+    error: null,
+    capabilities: {
+      seekable: false,
+      live: false,
+      dspAllowed: true,
+      analysisAllowed: true,
+      supportsMetadataUpdates: false,
+    },
+    spectrum: Array.from({ length: 19 }, () => 0),
+  },
+  settings: {
+    volume: 0.8,
+    balance: 0,
+    shuffle: false,
+    repeat: false,
+    doubleSize: false,
+    alwaysOnTop: false,
+    mainWinshade: false,
+    language: "en",
+    selectedSkin: null,
+    eq: { enabled: false, preampDb: 0, bandsDb: Array.from({ length: 10 }, () => 0) },
+  },
+  layout: {
+    main: { x: 100, y: 100 },
+    equalizer: { x: 100, y: 216 },
+    playlist: { x: 100, y: 332 },
+    playlistHeight: 232,
+    equalizerVisible: true,
+    playlistVisible: true,
+    combined: false,
+  },
+};

@@ -1,0 +1,48 @@
+[package]
+name = "tonelag"
+version = "0.1.0"
+description = "An open-source Winamp Classic skin compatible audio client"
+authors = ["Tonelag contributors"]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/oddhap/tonelag"
+rust-version = "1.97"
+
+[lib]
+name = "tonelag_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "tonelag"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+anyhow = "1.0.102"
+biquad = "0.6.0"
+cpal = "0.18.1"
+ffmpeg-next = { version = "8.1.0", default-features = false, features = ["codec", "format", "software-resampling"] }
+futures-util = "0.3.32"
+log = "0.4.29"
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json", "stream", "blocking"] }
+rtrb = "0.3.4"
+rustfft = "6.4.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sha2 = "0.10.9"
+souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
+tauri = { version = "2.11.5", features = ["macos-private-api"] }
+tauri-plugin-dialog = "2.7.1"
+tauri-plugin-log = "2.9.0"
+tauri-plugin-single-instance = "2.4.3"
+thiserror = "2.0.18"
+tokio = { version = "1.49.0", features = ["rt-multi-thread", "sync", "time", "fs", "io-util", "macros"] }
+ts-rs = { version = "12.0.1", features = ["serde-compat", "uuid-impl"] }
+url = { version = "2.5.8", features = ["serde"] }
+uuid = { version = "1.21.0", features = ["v4", "serde"] }
+zip = { version = "6.0.0", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3.26.0"

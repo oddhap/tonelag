@@ -1,0 +1,89 @@
+name: Prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v-prefixed prerelease tag
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-14
+            args: --target universal-apple-darwin
+          - platform: ubuntu-22.04
+            args: --target x86_64-unknown-linux-gnu
+          - platform: ubuntu-24.04-arm
+            args: --target aarch64-unknown-linux-gnu
+          - platform: windows-2025
+            args: --target x86_64-pc-windows-msvc
+          - platform: windows-11-arm
+            args: --target aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - run: pnpm install --frozen-lockfile
+      - name: Install Linux system packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Install macOS system packages
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg pkgconf
+      - name: Verify release inputs
+        shell: bash
+        run: |
+          test -f THIRD_PARTY_NOTICES.md
+          test -f assets/default-skin/model-275.wsz
+          pnpm test
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ inputs.tag }}
+          releaseName: Tonelag ${{ inputs.tag }}
+          releaseBody: Unsigned prerelease. Read docs/RELEASE.md before installing.
+          releaseDraft: true
+          prerelease: true
+          args: ${{ matrix.args }}
+
+  sbom:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - run: cargo install cargo-cyclonedx --locked
+      - run: cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm dlx @cyclonedx/cyclonedx-npm --output-file frontend.cdx.json
+      - name: Fetch and verify corresponding LGPL/BSD sources
+        run: TONELAG_FETCH_ONLY=1 ./scripts/ffmpeg/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-compliance
+          path: |
+            src-tauri/*.cdx.json
+            frontend.cdx.json
+            .build/audio-libs/sources/*
+            THIRD_PARTY_NOTICES.md
