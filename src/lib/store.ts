@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { AppSnapshot } from "../bindings/contracts";
 import { defaultSnapshot } from "./defaults";
-import { getSnapshot, isTauri, onSnapshot } from "./backend";
+import { getSnapshot, isTauri, onPlaybackSnapshot, onQueueSnapshot, onSnapshot } from "./backend";
 
 let current = defaultSnapshot;
 const subscribers = new Set<() => void>();
@@ -17,6 +17,8 @@ export async function startSnapshotBridge() {
   if (started || !isTauri()) return;
   started = true;
   await onSnapshot(publish);
+  await onPlaybackSnapshot((playback) => publish({ ...current, revision: playback.revision, playback }));
+  await onQueueSnapshot((queue) => publish({ ...current, queue }));
   publish(await getSnapshot());
 }
 

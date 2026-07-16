@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppSnapshot } from "../bindings/contracts";
 import { addChosenFiles, addChosenFolder, clearAll, player, removeSelected, reorderItem, savePlaylist } from "../lib/actions";
@@ -9,6 +9,28 @@ import { PanelChrome } from "./PanelChrome";
 export function PlaylistPanel({ snapshot }: { snapshot: AppSnapshot }) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const listRef = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState({ top: 0, height: 232 });
+  const rowHeight = 16;
+  const overscan = 10;
+  const firstVisible = Math.max(0, Math.floor(viewport.top / rowHeight) - overscan);
+  const visibleCount = Math.ceil(viewport.height / rowHeight) + overscan * 2;
+  const lastVisible = Math.min(snapshot.queue.length, firstVisible + visibleCount);
+  const visibleItems = snapshot.queue.slice(firstVisible, lastVisible);
+  const totalDuration = useMemo(
+    () => snapshot.queue.reduce((total, item) => total + (item.durationMs ?? 0), 0),
+    [snapshot.queue],
+  );
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setViewport((current) => ({ ...current, height: entry.contentRect.height }));
+    });
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
 
   const select = (id: string, additive: boolean) => {
     setSelected((previous) => {
@@ -37,6 +59,11 @@ export function PlaylistPanel({ snapshot }: { snapshot: AppSnapshot }) {
       void reorderItem(current, target);
     } else if (snapshot.queue[target]) {
       setSelected(new Set([snapshot.queue[target].id]));
+      const list = listRef.current;
+      if (list && (target < firstVisible || target >= lastVisible)) {
+        list.scrollTop = target * rowHeight;
+        setViewport({ top: list.scrollTop, height: list.clientHeight || viewport.height });
+      }
     }
   };
 
@@ -49,11 +76,22 @@ export function PlaylistPanel({ snapshot }: { snapshot: AppSnapshot }) {
     <PanelChrome
       className="playlist-panel"
       title={`${t("playlist")} · ${snapshot.queue.length}`}
+      expandedDragArea
       controls={<button className="micro-button" aria-label={t("close")} onClick={() => void setPanelVisible("playlist", false)}>×</button>}
     >
-      <div className="playlist-list" role="listbox" aria-multiselectable="true" tabIndex={0} onKeyDown={handleKeyDown}>
+      <div
+        className="playlist-list"
+        role="listbox"
+        aria-multiselectable="true"
+        tabIndex={0}
+        ref={listRef}
+        onScroll={(event) => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight || viewport.height })}
+        onKeyDown={handleKeyDown}
+      >
         {snapshot.queue.length === 0 && <p className="playlist-empty">{t("emptyPlaylist")}</p>}
-        {snapshot.queue.map((item, index) => {
+        <div className="playlist-scroll-space" style={{ height: snapshot.queue.length * rowHeight }}>
+        {visibleItems.map((item, visibleIndex) => {
+          const index = firstVisible + visibleIndex;
           const active = item.id === snapshot.playback.currentItemId;
           const isSelected = selected.has(item.id);
           return (
@@ -63,6 +101,7 @@ export function PlaylistPanel({ snapshot }: { snapshot: AppSnapshot }) {
               aria-selected={isSelected}
               draggable
               className={`playlist-item ${active ? "current" : ""} ${!item.available ? "unavailable" : ""}`}
+              style={{ top: index * rowHeight }}
               onClick={(event) => select(item.id, event.metaKey || event.ctrlKey)}
               onDoubleClick={() => void player({ type: "load", itemId: item.id })}
               onDragStart={(event) => event.dataTransfer.setData("application/x-classic-queue-index", String(index))}
@@ -79,17 +118,18 @@ export function PlaylistPanel({ snapshot }: { snapshot: AppSnapshot }) {
             </button>
           );
         })}
+        </div>
       </div>
       <footer className="playlist-footer">
         <div className="playlist-menu">
-          <button onClick={() => void addChosenFiles()}>{t("add")}</button>
-          <button onClick={() => void addChosenFolder()}>DIR</button>
-          <button disabled={!selected.size} onClick={() => { void removeSelected([...selected]); setSelected(new Set()); }}>{t("remove")}</button>
-          <button disabled={!selected.size} onClick={cropSelection}>{t("crop")}</button>
-          <button disabled={!snapshot.queue.length} onClick={() => void clearAll()}>{t("clear")}</button>
-          <button disabled={!snapshot.queue.length} onClick={() => void savePlaylist()}>{t("save")}</button>
+          <button className="playlist-add-button" onClick={() => void addChosenFiles()}>{t("add")}</button>
+          <button className="playlist-dir-button" onClick={() => void addChosenFolder()}>DIR</button>
+          <button className="playlist-remove-button" disabled={!selected.size} onClick={() => { void removeSelected([...selected]); setSelected(new Set()); }}>{t("remove")}</button>
+          <button className="playlist-crop-button" disabled={!selected.size} onClick={cropSelection}>{t("crop")}</button>
+          <button className="playlist-clear-button" disabled={!snapshot.queue.length} onClick={() => void clearAll()}>{t("clear")}</button>
+          <button className="playlist-save-button" disabled={!snapshot.queue.length} onClick={() => void savePlaylist()}>{t("save")}</button>
         </div>
-        <output>{formatTime(snapshot.queue.reduce((total, item) => total + (item.durationMs ?? 0), 0))}</output>
+        <output>{formatTime(totalDuration)}</output>
       </footer>
     </PanelChrome>
   );

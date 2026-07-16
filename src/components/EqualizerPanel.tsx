@@ -13,32 +13,33 @@ export function EqualizerPanel({ snapshot }: { snapshot: AppSnapshot }) {
     <PanelChrome
       className="equalizer-panel"
       title={t("equalizer")}
+      expandedDragArea
       controls={<button className="micro-button" aria-label={t("close")} onClick={() => void setPanelVisible("equalizer", false)}>×</button>}
     >
       <div className="eq-toolbar">
-        <button className={eq.enabled ? "active" : ""} onClick={() => void player({ type: "setEqEnabled", enabled: !eq.enabled })}>
+        <button className={`eq-on-button ${eq.enabled ? "active" : ""}`} onClick={() => void player({ type: "setEqEnabled", enabled: !eq.enabled })}>
           {eq.enabled ? t("enabled") : t("disabled")}
         </button>
-        <button onClick={() => void loadEqPreset()}>LOAD</button>
-        <button onClick={() => void saveEqPreset()}>SAVE</button>
+        <button className="eq-load-button" aria-label="Load EQ preset" onClick={() => void loadEqPreset()}>LOAD</button>
+        <button className="eq-save-button" aria-label="Save EQ preset" onClick={() => void saveEqPreset()}>SAVE</button>
         <span className="eq-curve" aria-hidden="true">
           {[eq.preampDb, ...eq.bandsDb].map((value, index) => <i key={index} style={{ transform: `translateY(${-value * 0.3}px)` }} />)}
         </span>
       </div>
       <div className="eq-sliders">
-        <EqSlider label={t("preamp")} value={eq.preampDb} onChange={(value) => player({ type: "setPreamp", valueDb: value })} />
+        <EqSlider label={t("preamp")} left={21} value={eq.preampDb} onChange={(value) => player({ type: "setPreamp", valueDb: value })} />
         {eq.bandsDb.map((value, index) => (
-          <EqSlider key={frequencies[index]} label={frequencies[index] ?? ""} value={value} onChange={(valueDb) => player({ type: "setEqBand", index, valueDb })} />
+          <EqSlider key={frequencies[index]} label={frequencies[index] ?? ""} left={78 + index * 18} value={value} onChange={(valueDb) => player({ type: "setEqBand", index, valueDb })} />
         ))}
       </div>
     </PanelChrome>
   );
 }
 
-function EqSlider({ label, value, onChange }: { label: string; value: number; onChange(value: number): void }) {
+function EqSlider({ label, left, value, onChange }: { label: string; left: number; value: number; onChange(value: number): void }) {
   return (
-    <label className="eq-slider" title={`${label}: ${value.toFixed(1)} dB`}>
-      <input type="range" min={-12} max={12} step={0.5} value={value} onChange={(event) => onChange(Number(event.currentTarget.value))} />
+    <label className="eq-slider" style={{ left }} title={`${label}: ${value.toFixed(1)} dB`}>
+      <input className="eq-slider-input" aria-label={label} type="range" min={-12} max={12} step={0.5} value={value} onChange={(event) => onChange(Number(event.currentTarget.value))} />
       <span>{label}</span>
     </label>
   );

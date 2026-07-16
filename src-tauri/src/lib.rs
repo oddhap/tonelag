@@ -24,8 +24,11 @@ use uuid::Uuid;
 type CommandResult<T> = Result<T, String>;
 
 #[tauri::command]
-fn get_snapshot(controller: State<'_, Arc<AppController>>) -> AppSnapshot {
-    controller.snapshot()
+fn get_snapshot(
+    window: tauri::WebviewWindow,
+    controller: State<'_, Arc<AppController>>,
+) -> AppSnapshot {
+    snapshot_for_window(controller.snapshot(), window.label())
 }
 
 #[tauri::command]
@@ -33,9 +36,11 @@ fn player_command(
     command: PlayerCommand,
     controller: State<'_, Arc<AppController>>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
 ) -> CommandResult<AppSnapshot> {
     controller
         .player_command(command, &app)
+        .map(|snapshot| snapshot_for_window(snapshot, window.label()))
         .map_err(format_error)
 }
 
@@ -97,9 +102,11 @@ fn eqf_import(
     path: String,
     controller: State<'_, Arc<AppController>>,
     app: AppHandle,
+    window: tauri::WebviewWindow,
 ) -> CommandResult<AppSnapshot> {
     controller
         .import_eqf(PathBuf::from(path).as_path(), &app)
+        .map(|snapshot| snapshot_for_window(snapshot, window.label()))
         .map_err(format_error)
 }
 
@@ -124,6 +131,37 @@ fn skin_import(
 #[tauri::command]
 fn skin_bytes(id: String, controller: State<'_, Arc<AppController>>) -> CommandResult<Vec<u8>> {
     controller.skin_bytes(&id).map_err(format_error)
+}
+
+#[tauri::command]
+fn skin_list(controller: State<'_, Arc<AppController>>) -> CommandResult<Vec<SkinDescriptor>> {
+    controller.list_skins().map_err(format_error)
+}
+
+#[tauri::command]
+fn skin_delete(
+    id: String,
+    controller: State<'_, Arc<AppController>>,
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+) -> CommandResult<AppSnapshot> {
+    controller
+        .delete_skin(&id, &app)
+        .map(|snapshot| snapshot_for_window(snapshot, window.label()))
+        .map_err(format_error)
+}
+
+#[tauri::command]
+fn skin_select(
+    id: Option<String>,
+    controller: State<'_, Arc<AppController>>,
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+) -> CommandResult<AppSnapshot> {
+    controller
+        .select_installed_skin(id, &app)
+        .map(|snapshot| snapshot_for_window(snapshot, window.label()))
+        .map_err(format_error)
 }
 
 #[tauri::command]
@@ -165,6 +203,28 @@ fn set_panel_visible(
     controller
         .set_panel_visible(&app, &panel, visible)
         .map_err(format_error)
+}
+
+#[tauri::command]
+fn frontend_ready(app: AppHandle, controller: State<'_, Arc<AppController>>) -> CommandResult<()> {
+    controller
+        .restore_visible_windows(&app)
+        .map_err(format_error)?;
+    let audio_controller = controller.inner().clone();
+    let audio_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = audio_controller.initialize_audio(&audio_app) {
+            log::warn!("Could not initialize audio after startup: {error:#}");
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle, controller: State<'_, Arc<AppController>>) -> CommandResult<()> {
+    controller.save_before_exit().map_err(format_error)?;
+    app.exit(0);
+    Ok(())
 }
 
 pub fn run() {
@@ -219,8 +279,21 @@ pub fn run() {
         })
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
-            let (controller, mut audio_events) = AppController::new(data_dir)?;
-            let controller = Arc::new(controller);
+            let controller = Arc::new(AppController::new(data_dir)?);
+            let bundled_skin = app
+                .path()
+                .resource_dir()?
+                .join("default-skin")
+                .join("pastellplate.wsz");
+            if bundled_skin.exists()
+                && let Err(error) = controller.install_bundled_skin(
+                    &bundled_skin,
+                    "Pastellplate",
+                    &["3d4b15657d4352bef0706b4db9010edc5142fef1486069ef2cab0ebef57cce22"],
+                )
+            {
+                log::warn!("Could not install bundled Pastellplate skin: {error:#}");
+            }
             app.manage(controller.clone());
             controller.configure_windows(app.handle())?;
             let initial_paths = std::env::args()
@@ -273,14 +346,6 @@ pub fn run() {
                 })?;
 
             let app_handle = app.handle().clone();
-            let event_controller = controller.clone();
-            tauri::async_runtime::spawn(async move {
-                while let Some(event) = audio_events.recv().await {
-                    event_controller.handle_audio_event(event, &app_handle);
-                }
-            });
-
-            let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut ticker = tokio::time::interval(Duration::from_millis(100));
                 loop {
@@ -304,10 +369,15 @@ pub fn run() {
             eqf_export,
             skin_import,
             skin_bytes,
+            skin_list,
+            skin_delete,
+            skin_select,
             skin_catalog_browse,
             skin_catalog_install,
             resolve_stream,
             set_panel_visible,
+            frontend_ready,
+            quit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Tonelag");
@@ -315,4 +385,12 @@ pub fn run() {
 
 fn format_error(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+fn snapshot_for_window(mut snapshot: AppSnapshot, label: &str) -> AppSnapshot {
+    if label != "playlist" && !(label == "main" && snapshot.layout.combined) {
+        let current = snapshot.playback.current_item_id;
+        snapshot.queue.retain(|item| Some(item.id) == current);
+    }
+    snapshot
 }

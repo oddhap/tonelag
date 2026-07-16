@@ -4,10 +4,10 @@ import { MainPanel } from "./components/MainPanel";
 import { EqualizerPanel } from "./components/EqualizerPanel";
 import { PlaylistPanel } from "./components/PlaylistPanel";
 import { SkinBrowserPanel } from "./components/SkinBrowserPanel";
-import { addPaths, isTauri, onDroppedPaths } from "./lib/backend";
+import { addPaths, isTauri, notifyFrontendReady, onDroppedPaths, setInterfaceScale } from "./lib/backend";
 import { reportError } from "./lib/actions";
 import { loadSkinById, useClassicSkin } from "./lib/skin-store";
-import { skinCssVariables } from "./lib/skin";
+import { skinCssClasses, skinCssVariables } from "./lib/skin";
 import { acceptSnapshot, useAppSnapshot } from "./lib/store";
 
 type Panel = "main" | "equalizer" | "playlist" | "combined" | "skins";
@@ -24,12 +24,22 @@ export default function App() {
   const panel = snapshot.layout.combined && requestedPanel() === "main" ? "combined" : requestedPanel();
 
   useEffect(() => {
+    if (panel === "main" && isTauri()) void notifyFrontendReady().catch(reportError);
+  }, [panel]);
+
+  useEffect(() => {
     void i18n.changeLanguage(snapshot.settings.language);
   }, [snapshot.settings.language]);
 
   useEffect(() => {
     void loadSkinById(snapshot.settings.selectedSkin).catch(reportError);
   }, [snapshot.settings.selectedSkin]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const scale = panel !== "skins" && snapshot.settings.doubleSize ? 2 : 1;
+    void setInterfaceScale(scale).catch(reportError);
+  }, [panel, snapshot.settings.doubleSize]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -56,7 +66,7 @@ export default function App() {
   }, []);
 
   return (
-    <main className={`app-shell panel-${panel} ${panel !== "skins" && skin ? "has-imported-skin" : ""} ${panel !== "skins" && snapshot.settings.doubleSize ? "double-size" : ""} ${panel !== "skins" && snapshot.settings.mainWinshade ? "winshade" : ""}`} style={panel === "skins" ? undefined : skinCssVariables(skin)}>
+    <main className={`app-shell panel-${panel} ${skin ? "has-imported-skin" : ""} ${skinCssClasses(skin)} ${panel !== "skins" && snapshot.settings.doubleSize ? "double-size" : ""} ${panel !== "skins" && snapshot.settings.mainWinshade ? "winshade" : ""}`} style={skinCssVariables(skin)}>
       {(panel === "main" || panel === "combined") && <MainPanel snapshot={snapshot} />}
       {(panel === "equalizer" || panel === "combined") && <EqualizerPanel snapshot={snapshot} />}
       {(panel === "playlist" || panel === "combined") && <PlaylistPanel snapshot={snapshot} />}

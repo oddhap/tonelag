@@ -22,6 +22,8 @@ pub struct SkinDescriptor {
     pub id: String,
     pub name: String,
     pub files: Vec<String>,
+    #[serde(default)]
+    pub bundled: bool,
 }
 
 pub fn import(source: &Path, skins_dir: &Path) -> Result<SkinDescriptor> {
@@ -80,7 +82,7 @@ pub fn install_bytes(name: &str, bytes: &[u8], skins_dir: &Path) -> Result<SkinD
         .take(120)
         .collect::<String>();
     let name = name.trim();
-    Ok(SkinDescriptor {
+    let descriptor = SkinDescriptor {
         id,
         name: if name.is_empty() {
             "Imported skin".to_owned()
@@ -88,7 +90,49 @@ pub fn install_bytes(name: &str, bytes: &[u8], skins_dir: &Path) -> Result<SkinD
             name.to_owned()
         },
         files,
-    })
+        bundled: false,
+    };
+    write_descriptor(skins_dir, &descriptor)?;
+    Ok(descriptor)
+}
+
+pub fn list(skins_dir: &Path) -> Result<Vec<SkinDescriptor>> {
+    if !skins_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut descriptors = Vec::new();
+    for entry in fs::read_dir(skins_dir)? {
+        let path = entry?.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("wsz") {
+            continue;
+        }
+        let Some(id) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            continue;
+        }
+        let descriptor_path = skins_dir.join(format!("{id}.json"));
+        let descriptor = fs::read(&descriptor_path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<SkinDescriptor>(&bytes).ok())
+            .filter(|descriptor| descriptor.id == id)
+            .or_else(|| {
+                let bytes = fs::read(&path).ok()?;
+                let (_, files) = inspect(&bytes).ok()?;
+                Some(SkinDescriptor {
+                    id: id.to_owned(),
+                    name: format!("Legacy skin {}", &id[..8]),
+                    files,
+                    bundled: false,
+                })
+            });
+        if let Some(descriptor) = descriptor {
+            descriptors.push(descriptor);
+        }
+    }
+    descriptors.sort_by_cached_key(|descriptor| descriptor.name.to_lowercase());
+    Ok(descriptors)
 }
 
 pub fn read_bytes(skins_dir: &Path, id: &str) -> Result<Vec<u8>> {
@@ -96,6 +140,71 @@ pub fn read_bytes(skins_dir: &Path, id: &str) -> Result<Vec<u8>> {
         bail!("invalid skin id");
     }
     fs::read(skins_dir.join(format!("{id}.wsz"))).context("failed reading imported skin")
+}
+
+pub fn mark_bundled(skins_dir: &Path, descriptor: &mut SkinDescriptor) -> Result<()> {
+    descriptor.bundled = true;
+    write_descriptor(skins_dir, descriptor)
+}
+
+pub fn remove(skins_dir: &Path, id: &str) -> Result<()> {
+    if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("invalid skin id");
+    }
+    let archive = skins_dir.join(format!("{id}.wsz"));
+    let metadata = skins_dir.join(format!("{id}.json"));
+    let descriptor = fs::read(&metadata)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<SkinDescriptor>(&bytes).ok());
+    if descriptor.is_some_and(|descriptor| descriptor.bundled) {
+        bail!("bundled skins cannot be deleted");
+    }
+    if !archive.exists() {
+        bail!("skin is not installed");
+    }
+
+    let nonce = uuid::Uuid::new_v4();
+    let archived = skins_dir.join(format!(".deleted-{nonce}.wsz"));
+    let metadata_archived = skins_dir.join(format!(".deleted-{nonce}.json"));
+    fs::rename(&archive, &archived).context("failed staging skin archive for deletion")?;
+    if metadata.exists()
+        && let Err(error) = fs::rename(&metadata, &metadata_archived)
+    {
+        let _ = fs::rename(&archived, &archive);
+        return Err(error).context("failed staging skin metadata for deletion");
+    }
+    fs::remove_file(&archived).context("failed deleting skin archive")?;
+    if metadata_archived.exists() {
+        fs::remove_file(metadata_archived).context("failed deleting skin metadata")?;
+    }
+    Ok(())
+}
+
+fn write_descriptor(skins_dir: &Path, descriptor: &SkinDescriptor) -> Result<()> {
+    let target = skins_dir.join(format!("{}.json", descriptor.id));
+    if fs::read(&target)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<SkinDescriptor>(&bytes).ok())
+        .as_ref()
+        == Some(descriptor)
+    {
+        return Ok(());
+    }
+    let temporary = skins_dir.join(format!(".skin-meta-{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| -> Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(&serde_json::to_vec_pretty(descriptor)?)?;
+        file.sync_all()?;
+        fs::rename(&temporary, &target)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn validate_extension(path: &Path) -> Result<()> {
@@ -211,6 +320,77 @@ mod tests {
                 .count(),
             0
         );
+        assert_eq!(list(dir.path()).unwrap(), vec![descriptor]);
+    }
+
+    #[test]
+    fn lists_existing_archives_without_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("legacy.wsz");
+        create_skin(&source, &["MAIN.BMP"]);
+        let bytes = fs::read(&source).unwrap();
+        let (id, _) = inspect(&bytes).unwrap();
+        fs::rename(source, dir.path().join(format!("{id}.wsz"))).unwrap();
+
+        let skins = list(dir.path()).unwrap();
+
+        assert_eq!(skins.len(), 1);
+        assert_eq!(skins[0].id, id);
+        assert_eq!(skins[0].name, format!("Legacy skin {}", &id[..8]));
+    }
+
+    #[test]
+    fn removes_an_installed_skin_and_its_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("remove.wsz");
+        create_skin(&source, &["MAIN.BMP"]);
+        let bytes = fs::read(source).unwrap();
+        let descriptor = install_bytes("Remove me", &bytes, dir.path()).unwrap();
+
+        remove(dir.path(), &descriptor.id).unwrap();
+
+        assert!(!dir.path().join(format!("{}.wsz", descriptor.id)).exists());
+        assert!(!dir.path().join(format!("{}.json", descriptor.id)).exists());
+        assert!(list(dir.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn refuses_to_remove_a_bundled_skin() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("bundled.wsz");
+        create_skin(&source, &["MAIN.BMP"]);
+        let bytes = fs::read(source).unwrap();
+        let mut descriptor = install_bytes("Bundled", &bytes, dir.path()).unwrap();
+        mark_bundled(dir.path(), &mut descriptor).unwrap();
+
+        assert!(remove(dir.path(), &descriptor.id).is_err());
+        assert!(dir.path().join(format!("{}.wsz", descriptor.id)).exists());
+    }
+
+    #[test]
+    fn bundled_pastellplate_is_a_complete_classic_skin() {
+        let bytes = include_bytes!("../../assets/default-skin/pastellplate.wsz");
+        let (_, files) = inspect(bytes).unwrap();
+
+        for required in [
+            "main.bmp",
+            "eqmain.bmp",
+            "pledit.bmp",
+            "cbuttons.bmp",
+            "titlebar.bmp",
+            "shufrep.bmp",
+            "posbar.bmp",
+            "text.bmp",
+            "numbers.bmp",
+            "pledit.txt",
+            "viscolor.txt",
+            "region.txt",
+        ] {
+            assert!(
+                files.iter().any(|name| leaf(name) == required),
+                "missing {required}"
+            );
+        }
     }
 
     #[test]

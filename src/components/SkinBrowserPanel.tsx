@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import type { SkinCatalogPage } from "../bindings/contracts";
-import { browseSkinCatalog, installCatalogSkin, isTauri, onSkinBrowserOpened, setPanelVisible } from "../lib/backend";
+import type { SkinCatalogPage, SkinDescriptor } from "../bindings/contracts";
+import { browseSkinCatalog, deleteInstalledSkin, installCatalogSkin, isTauri, listInstalledSkins, onSkinBrowserOpened, selectInstalledSkin, setPanelVisible } from "../lib/backend";
 import { chooseAndImportSkin } from "../lib/skin-store";
+import { acceptSnapshot, useAppSnapshot } from "../lib/store";
+import { PanelChrome } from "./PanelChrome";
 
 const PAGE_SIZE = 24;
 
 export function SkinBrowserPanel() {
   const { t } = useTranslation();
+  const snapshot = useAppSnapshot();
   const [draftQuery, setDraftQuery] = useState("");
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
@@ -16,24 +19,30 @@ export function SkinBrowserPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
-  const [installed, setInstalled] = useState<string | null>(null);
-  const [active, setActive] = useState(!isTauri());
+  const [installedMd5, setInstalledMd5] = useState<string | null>(null);
+  const [localSkins, setLocalSkins] = useState<SkinDescriptor[]>([]);
+  const [selectedLocalId, setSelectedLocalId] = useState(snapshot.settings.selectedSkin ?? "");
+  const refreshLocalSkins = useCallback(async () => {
+    if (!isTauri()) return;
+    setLocalSkins(await listInstalledSkins());
+  }, []);
 
   useEffect(() => {
     if (!isTauri()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void onSkinBrowserOpened(() => setActive(true)).then((dispose) => {
+    void onSkinBrowserOpened(() => {
+      void refreshLocalSkins().catch((reason: unknown) => setError(String(reason)));
+    }).then((dispose) => {
       if (disposed) dispose(); else unlisten = dispose;
     });
     return () => {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [refreshLocalSkins]);
 
   useEffect(() => {
-    if (!active) return;
     let disposed = false;
     void browseSkinCatalog(query || null, offset, PAGE_SIZE)
       .then((result) => {
@@ -51,7 +60,14 @@ export function SkinBrowserPanel() {
     return () => {
       disposed = true;
     };
-  }, [active, query, offset]);
+  }, [query, offset]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void listInstalledSkins()
+      .then(setLocalSkins)
+      .catch((reason: unknown) => setError(String(reason)));
+  }, []);
 
   const beginBrowse = (nextQuery: string, nextOffset: number) => {
     if (nextQuery === query && nextOffset === offset) return;
@@ -71,8 +87,10 @@ export function SkinBrowserPanel() {
     setInstalling(md5);
     setError(null);
     try {
-      await installCatalogSkin(md5, name);
-      setInstalled(md5);
+      const descriptor = await installCatalogSkin(md5, name);
+      setSelectedLocalId(descriptor.id);
+      setInstalledMd5(md5);
+      await refreshLocalSkins();
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -80,23 +98,75 @@ export function SkinBrowserPanel() {
     }
   };
 
+  const applySelectedSkin = async () => {
+    setError(null);
+    try {
+      const result = await selectInstalledSkin(selectedLocalId || null);
+      acceptSnapshot(result);
+    } catch (reason) {
+      setError(String(reason));
+    }
+  };
+
+  const deleteSelectedSkin = async () => {
+    const selected = localSkins.find((skin) => skin.id === selectedLocalId);
+    if (!selected || selected.bundled || !window.confirm(t("deleteSkinConfirm", { name: selected.name }))) return;
+    setError(null);
+    try {
+      const result = await deleteInstalledSkin(selected.id);
+      acceptSnapshot(result);
+      setSelectedLocalId(result.settings.selectedSkin ?? "");
+      await refreshLocalSkins();
+    } catch (reason) {
+      setError(String(reason));
+    }
+  };
+
+  const selectedLocalSkin = localSkins.find((skin) => skin.id === selectedLocalId);
+
   const items = page?.items ?? [];
   const total = page?.totalCount === null || page?.totalCount === undefined
     ? ""
     : t("skinTotal", { count: page.totalCount });
 
   return (
-    <section className="skin-browser">
-      <header className="skin-browser-header">
-        <div>
-          <h1>{t("skinBrowser")}</h1>
-          <p>{t("skinCatalogAttribution")}</p>
-        </div>
-        <div className="skin-browser-actions">
-          <button type="button" onClick={() => void chooseAndImportSkin().catch((reason: unknown) => setError(String(reason)))}>{t("importSkin")}</button>
-          <button type="button" onClick={() => void setPanelVisible("skins", false)}>{t("close")}</button>
-        </div>
-      </header>
+    <PanelChrome
+      className="skin-browser"
+      title={t("skinBrowser")}
+      controls={<button className="micro-button" type="button" aria-label={t("close")} onClick={() => void setPanelVisible("skins", false)}>×</button>}
+    >
+      <div className="skin-browser-toolbar">
+        <label htmlFor="installed-skin">{t("installedSkins")}</label>
+        <select
+          id="installed-skin"
+          value={selectedLocalId}
+          onChange={(event) => setSelectedLocalId(event.currentTarget.value)}
+        >
+          <option value="">Model 275</option>
+          {localSkins.map((skin) => (
+            <option value={skin.id} key={skin.id}>
+              {skin.name}{skin.bundled ? ` (${t("bundled")})` : ""}
+            </option>
+          ))}
+        </select>
+        <button type="button" aria-label={t("useSelectedSkin")} onClick={() => void applySelectedSkin()}>{t("useSkin")}</button>
+        <button
+          type="button"
+          aria-label={t("deleteSelectedSkin")}
+          disabled={!selectedLocalSkin || selectedLocalSkin.bundled}
+          title={selectedLocalSkin?.bundled ? t("bundledSkinCannotDelete") : undefined}
+          onClick={() => void deleteSelectedSkin()}
+        >{t("deleteSkin")}</button>
+        <button
+          type="button"
+          onClick={() => void chooseAndImportSkin()
+            .then((descriptor) => {
+              if (descriptor) setSelectedLocalId(descriptor.id);
+              return refreshLocalSkins();
+            })
+            .catch((reason: unknown) => setError(String(reason)))}
+        >{t("importSkin")}</button>
+      </div>
 
       <form className="skin-search" onSubmit={submitSearch}>
         <label htmlFor="skin-query">{t("skinSearch")}</label>
@@ -126,10 +196,10 @@ export function SkinBrowserPanel() {
                 <h2 title={skin.name}>{skin.name}</h2>
                 <button
                   type="button"
-                  disabled={installing !== null || installed === skin.md5}
+                  disabled={installing !== null || installedMd5 === skin.md5}
                   onClick={() => void install(skin.md5, skin.name)}
                 >
-                  {installing === skin.md5 ? t("installing") : installed === skin.md5 ? t("installed") : t("install")}
+                  {installing === skin.md5 ? t("installing") : installedMd5 === skin.md5 ? t("installed") : t("install")}
                 </button>
               </article>
             ))}
@@ -144,6 +214,6 @@ export function SkinBrowserPanel() {
           <button type="button" disabled={loading || !page?.hasMore} onClick={() => beginBrowse(query, offset + PAGE_SIZE)}>{t("nextPage")}</button>
         </nav>
       </footer>
-    </section>
+    </PanelChrome>
   );
 }
